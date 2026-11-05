@@ -12,14 +12,14 @@
   --bg:#14171c;--panel:#1b1f26;--head-1:#262c36;--head-2:#20252e;--head-3:#1b1f26;--group:#242a33;
   --line:#343b47;--grid:#272d36;--fy-line:#566072;--text:#e6e9ee;--muted:#9aa3b2;--hover:#2c333e;
   --accent:#58b7ab;--on-accent:#0d1b19;--danger:#f97066;--ok:#47cd89;--warn:#fdb022;
-  --bar:#4a93c9;--on-bar:#071724;--bar-hi:#f79009;--on-bar-hi:#1f1200;--summary:#5d6778;--now:rgba(88,183,171,.12);--now-head:#23514c;
+  --bar:#4a93c9;--on-bar:#071724;--ms:#c4a1f5;--bar-hi:#f79009;--on-bar-hi:#1f1200;--summary:#5d6778;--now:rgba(88,183,171,.12);--now-head:#23514c;
 }
 [data-theme="light"]{
   color-scheme:light;
   --bg:#f3f4f6;--panel:#ffffff;--head-1:#dfe3ea;--head-2:#eaedf2;--head-3:#f6f7f9;--group:#eceff4;
   --line:#cfd4dd;--grid:#e6e9ee;--fy-line:#8e98a9;--text:#1d2330;--muted:#5b6474;--hover:#e9ecf1;
   --accent:#17776c;--on-accent:#ffffff;--danger:#b42318;--ok:#067647;--warn:#b54708;
-  --bar:#2e78b2;--on-bar:#ffffff;--bar-hi:#d9480f;--on-bar-hi:#ffffff;--summary:#9aa3b2;--now:rgba(23,119,108,.09);--now-head:#bfe3de;
+  --bar:#2e78b2;--on-bar:#ffffff;--ms:#6d3fc0;--bar-hi:#d9480f;--on-bar-hi:#ffffff;--summary:#9aa3b2;--now:rgba(23,119,108,.09);--now-head:#bfe3de;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -97,6 +97,13 @@ tr:hover .period,.cell:has(.acts:focus-within) .period{visibility:hidden}
 .bar{user-select:none;-webkit-user-select:none;cursor:grab}
 .bar.moving{filter:brightness(1.25);z-index:1;cursor:grabbing}
 .bar.hi{background:var(--bar-hi);color:var(--on-bar-hi)}
+.ms{position:absolute;top:9px;width:19px;height:19px;padding:0;border:0;background:var(--ms);cursor:grab;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.ms.hi{background:var(--bar-hi)}
+.ms:hover,.ms:focus-visible{filter:brightness(1.15);outline:0}
+.ms.moving{filter:brightness(1.25);cursor:grabbing}
+.ms-label{position:absolute;top:0;line-height:calc(var(--row) - 1px);font-size:11px;white-space:nowrap;color:var(--muted);pointer-events:none}
+tr.ms-row .name::before{content:"◆ ";color:var(--ms)}
+tr.ms-row.hi .name::before{color:var(--bar-hi)}
 .summary{position:absolute;top:calc(50% - 2px);height:4px;border-radius:2px;background:var(--summary)}
 .empty{padding:34px 20px;text-align:left;color:var(--muted)}
 .empty .btn{margin-top:10px}
@@ -110,6 +117,7 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
 .fields label{display:grid;gap:4px;color:var(--muted);font-size:12px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .fields input[type=text],.fields input[type=month],.fields select{width:100%;height:34px;padding:0 9px;color:var(--text);font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.kinds{display:flex;gap:18px}
 label.check{display:flex;align-items:center;gap:8px;color:var(--text);font-size:13px}
 label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 .error{min-height:20px;margin:0;padding:2px 18px 0;color:var(--danger);font-size:12px}
@@ -125,6 +133,7 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 <header>
   <h1>Macro Schedule Editor</h1>
   <button class="btn primary" id="add" type="button">タスク追加</button>
+  <button class="btn" id="addMs" type="button">マイルストーン追加</button>
   <i class="sep"></i>
   <button class="btn" id="open" type="button" title="Ctrl / ⌘ + O">開く</button>
   <button class="btn" id="save" type="button" title="Ctrl / ⌘ + S">上書き保存</button>
@@ -140,10 +149,15 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 <dialog id="taskDlg" aria-labelledby="taskTitle">
   <h2 id="taskTitle"></h2>
   <div class="fields">
+    <div class="kinds" role="radiogroup" aria-label="種類">
+      <label class="check"><input id="kTask" type="radio" name="kind">タスク</label>
+      <label class="check"><input id="kMs" type="radio" name="kind">マイルストーン</label>
+    </div>
     <label>グループ<select id="fGroup"></select></label>
     <label id="fNewWrap" hidden>新しいグループ名<input id="fNew" type="text" maxlength="100"></label>
-    <label>タスク名<input id="fName" type="text" maxlength="200"></label>
-    <div class="two">
+    <label><span id="fNameLabel"></span><input id="fName" type="text" maxlength="200"></label>
+    <label id="fDateWrap">日付<input id="fDate" type="date"></label>
+    <div class="two" id="fMonths">
       <label>開始月<input id="fStart" type="month" placeholder="2026-04"></label>
       <label>終了月<input id="fEnd" type="month" placeholder="2027-03"></label>
     </div>
@@ -177,14 +191,14 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-const MIN_MONTHS = 15, YEAR_MIN = 1927, YEAR_MAX = 2199, APP = 'Macro Schedule Editor', VERSION = 1;
+const MIN_MONTHS = 15, MILESTONE_MARGIN = 2, YEAR_MIN = 1927, YEAR_MAX = 2199, APP = 'Macro Schedule Editor', VERSION = 2;
 const hasFsApi = 'showSaveFilePicker' in window;
 const store = {
   get(k) { try { return localStorage.getItem('mse.' + k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem('mse.' + k, v); } catch { /* 保存できなくても動作は続ける */ } },
 };
 
-/* state.tasks の順序がそのまま表示順になる */
+/* state.tasks の順序がそのまま表示順になる。マイルストーンは type と date を持ち、start / end は日付の月 */
 const state = { tasks: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, lastGroup: '', renaming: null, drag: null, barDrag: null };
 const rowOf = new WeakMap(); // 行要素 → { task } または { group }
 
@@ -201,12 +215,29 @@ function japaneseFiscal(y) {
   const n = y - base;
   return `${era}${n === 1 ? '元' : n}年度`;
 }
-const periodText = (t) => `${t.start.replace('-', '/')} – ${t.end.replace('-', '/')}`;
+const isMilestone = (t) => t.type === 'milestone';
+const periodText = (t) => (t.date ? t.date.replaceAll('-', '/') : `${t.start.replace('-', '/')} – ${t.end.replace('-', '/')}`);
+const daysIn = (i) => new Date(yearOf(i), monthOf(i), 0).getDate();
+const toDate = (i, day) => `${toYm(i)}-${String(day).padStart(2, '0')}`;
+/** 日付を月の列上の位置(月番号 + 月内の割合)に変換する */
+function datePosition(date) {
+  const i = toIndex(date.slice(0, 7));
+  return i + (+date.slice(8) - 0.5) / daysIn(i);
+}
+function positionDate(pos) {
+  const i = Math.max(YEAR_MIN * 12, Math.min(YEAR_MAX * 12 + 11, Math.floor(pos)));
+  const day = Math.floor((pos - Math.floor(pos)) * daysIn(i)) + 1;
+  return toDate(i, Math.max(1, Math.min(daysIn(i), day)));
+}
+function setDate(t, date) { t.date = date; t.start = t.end = date.slice(0, 7); }
+const shortDate = (date) => `${+date.slice(5, 7)}/${+date.slice(8)}`;
 
 function calendarRange() {
   const s = state.tasks.map((t) => toIndex(t.start)), e = state.tasks.map((t) => toIndex(t.end));
   const start = s.length ? Math.min(...s) : nowIndex();
-  const end = Math.max(start + MIN_MONTHS - 1, ...e);
+  // マイルストーンは右に名前を描くので、暦の末尾に余白を取る
+  const room = state.tasks.filter(isMilestone).map((t) => toIndex(t.date.slice(0, 7)) + MILESTONE_MARGIN);
+  const end = Math.max(start + MIN_MONTHS - 1, ...e, ...room);
   return { start, count: end - start + 1 };
 }
 function groupNames() {
@@ -241,6 +272,12 @@ function track(start, count, width) {
   td.style.width = width;
   return td;
 }
+function placeMilestone(mark, label, t, first) {
+  const x = datePosition(t.date) - first;
+  mark.style.left = `max(2px, calc(var(--month) * ${x} - 9px))`;
+  label.style.left = `max(25px, calc(var(--month) * ${x} + 14px))`;
+  label.textContent = `${shortDate(t.date)} ${t.name}`;
+}
 function place(node, from, months, start) {
   node.style.left = `calc(var(--month) * ${from - start} + 3px)`;
   node.style.width = `calc(var(--month) * ${months} - 6px)`;
@@ -256,7 +293,7 @@ function actions(items) {
   return box;
 }
 function taskRow(t, indented, start, count) {
-  const tr = el('tr', t.highlight ? 'hi' : '');
+  const tr = el('tr', [t.highlight ? 'hi' : '', isMilestone(t) ? 'ms-row' : ''].join(' ').trim());
   rowOf.set(tr, { task: t });
   const th = el('th'); th.scope = 'row'; th.draggable = true;
   const peers = state.tasks.filter((x) => x.group === t.group), at = peers.indexOf(t);
@@ -271,6 +308,15 @@ function taskRow(t, indented, start, count) {
   th.append(cell); tr.append(th);
 
   const td = track(start, count);
+  if (isMilestone(t)) {
+    const mark = el('button', 'ms' + (t.highlight ? ' hi' : ''));
+    mark.type = 'button'; mark.title = `${t.name}: ${periodText(t)}`; mark.setAttribute('aria-label', `${t.name} ${periodText(t)} を編集`);
+    mark.onclick = () => { if (!(state.barDrag && state.barDrag.moved)) openTask(t); };
+    const label = el('span', 'ms-label');
+    placeMilestone(mark, label, t, start);
+    td.append(mark, label); tr.append(td);
+    return tr;
+  }
   const s = toIndex(t.start), months = toIndex(t.end) - s + 1;
   const bar = el('button', 'bar' + (t.highlight ? ' hi' : ''), barLabel(s, s + months - 1));
   bar.type = 'button'; bar.title = `${t.name}: ${periodText(t)}`; bar.setAttribute('aria-label', `${t.name} ${periodText(t)} を編集`);
@@ -396,18 +442,31 @@ function syncNewGroup() {
   $('#fNewWrap').hidden = !on;
   if (!on) $('#fNew').value = '';
 }
-function openTask(t) {
+function syncKind() {
+  const ms = $('#kMs').checked;
+  $('#fDateWrap').hidden = !ms; $('#fMonths').hidden = ms;
+  $('#fNameLabel').textContent = ms ? 'マイルストーン名' : 'タスク名';
+  const editing = state.editing ? '編集' : '追加';
+  $('#taskTitle').textContent = `${ms ? 'マイルストーン' : 'タスク'}の${editing}`;
+  // 種類を切り替えても入力済みの時期を引き継ぐ
+  if (ms && !$('#fDate').value && validMonth($('#fStart').value)) $('#fDate').value = `${$('#fStart').value}-01`;
+  if (!ms && $('#fDate').value && !$('#fStart').value) { $('#fStart').value = $('#fEnd').value = $('#fDate').value.slice(0, 7); }
+}
+function openTask(t, milestone) {
   state.editing = t;
-  $('#taskTitle').textContent = t ? 'タスクの編集' : 'タスクの追加';
+  const ms = t ? isMilestone(t) : !!milestone;
   $('#fOk').textContent = t ? '保存' : '追加';
   $('#fDelete').hidden = !t;
   $('#fError').textContent = '';
   fillGroups(t ? t.group : state.lastGroup);
-  const now = nowIndex();
+  const now = nowIndex(), today = new Date();
+  $('#kMs').checked = ms; $('#kTask').checked = !ms;
   $('#fName').value = t ? t.name : '';
-  $('#fStart').value = t ? t.start : toYm(now);
-  $('#fEnd').value = t ? t.end : toYm(now + 2);
+  $('#fDate').value = t ? t.date || '' : ms ? toDate(now, today.getDate()) : '';
+  $('#fStart').value = t ? (ms ? '' : t.start) : toYm(now);
+  $('#fEnd').value = t ? (ms ? '' : t.end) : toYm(now + 2);
   $('#fHi').checked = t ? t.highlight : false;
+  syncKind();
   $('#taskDlg').showModal();
   $('#fName').focus();
 }
@@ -416,18 +475,33 @@ function validMonth(v) {
   const y = +v.slice(0, 4);
   return y >= YEAR_MIN && y <= YEAR_MAX;
 }
+function validDate(v) {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || !validMonth(v.slice(0, 7))) return false;
+  const day = +v.slice(8);
+  return day >= 1 && day <= daysIn(toIndex(v.slice(0, 7)));
+}
 function submitTask() {
   const name = $('#fName').value.trim(), start = $('#fStart').value.trim(), end = $('#fEnd').value.trim();
+  const ms = $('#kMs').checked, date = $('#fDate').value.trim();
   const sel = $('#fGroup').value;
   const group = (sel === NEW_GROUP ? $('#fNew').value : sel).trim();
   const err = (m, f) => { $('#fError').textContent = m; f.focus(); };
   if (sel === NEW_GROUP && !group) return err('新しいグループ名を入力してください', $('#fNew'));
-  if (!name) return err('タスク名を入力してください', $('#fName'));
-  if (!validMonth(start)) return err('開始月を入力してください(例: 2026-04)', $('#fStart'));
-  if (!validMonth(end)) return err('終了月を入力してください(例: 2027-03)', $('#fEnd'));
-  if (start > end) return err('終了月は開始月以降にしてください', $('#fEnd'));
-  const data = { group, name, start, end, highlight: $('#fHi').checked };
-  if (state.editing) Object.assign(state.editing, data); else state.tasks.push(data);
+  if (!name) return err(`${ms ? 'マイルストーン' : 'タスク'}名を入力してください`, $('#fName'));
+  const data = { group, name, highlight: $('#fHi').checked };
+  if (ms) {
+    if (!validDate(date)) return err('日付を入力してください(例: 2026-09-30)', $('#fDate'));
+    Object.assign(data, { type: 'milestone', date, start: date.slice(0, 7), end: date.slice(0, 7) });
+  } else {
+    if (!validMonth(start)) return err('開始月を入力してください(例: 2026-04)', $('#fStart'));
+    if (!validMonth(end)) return err('終了月を入力してください(例: 2027-03)', $('#fEnd'));
+    if (start > end) return err('終了月は開始月以降にしてください', $('#fEnd'));
+    Object.assign(data, { start, end });
+  }
+  if (state.editing) {
+    delete state.editing.type; delete state.editing.date;
+    Object.assign(state.editing, data);
+  } else state.tasks.push(data);
   state.lastGroup = group;
   $('#taskDlg').close();
   changed();
@@ -531,13 +605,10 @@ function draggedRange(d, delta) {
   const k = Math.max(IDX_MIN - d.s0, Math.min(IDX_MAX - d.e0, delta));
   return [d.s0 + k, d.e0 + k];
 }
-function startBarDrag(e, bar) {
-  const box = $('#gantt'), task = rowOf.get(bar.closest('tr')).task, W = cssPx('--month');
-  const d = {
-    task, mode: barZone(e, bar), moved: false, cancelled: false, x0: e.clientX + box.scrollLeft,
-    s0: toIndex(task.start), e0: toIndex(task.end), ns: toIndex(task.start), ne: toIndex(task.end), first: calendarRange().start,
-  };
-  const period = bar.closest('tr').querySelector('.period');
+/** ポインタの追従、自動スクロール、Esc での取り消しをまとめて扱う */
+function dragSession(e, update, commit) {
+  const box = $('#gantt');
+  const d = { moved: false, cancelled: false, x0: e.clientX + box.scrollLeft };
   state.barDrag = d;
   const onMove = (ev) => {
     if (d.cancelled) return;
@@ -545,12 +616,7 @@ function startBarDrag(e, bar) {
     if (ev.clientX > g.right - SCROLL_ZONE) box.scrollLeft += 16; else if (ev.clientX < left + SCROLL_ZONE) box.scrollLeft -= 16;
     const px = ev.clientX + box.scrollLeft - d.x0;
     if (Math.abs(px) > 3) d.moved = true;
-    if (!d.moved) return;
-    [d.ns, d.ne] = draggedRange(d, Math.round(px / W));
-    bar.classList.add('moving');
-    place(bar, d.ns, d.ne - d.ns + 1, d.first);
-    bar.textContent = barLabel(d.ns, d.ne);
-    period.textContent = periodText({ start: toYm(d.ns), end: toYm(d.ne) });
+    if (d.moved) update(px);
   };
   const onKey = (ev) => {
     if (ev.key !== 'Escape' || d.cancelled) return;
@@ -564,26 +630,58 @@ function startBarDrag(e, bar) {
     window.removeEventListener('pointercancel', onUp);
     document.removeEventListener('keydown', onKey, true);
     // 直後のクリックで編集画面が開かないよう、クリックの処理が終わってから確定する
-    setTimeout(() => {
-      state.barDrag = null;
-      if (d.cancelled || (d.ns === d.s0 && d.ne === d.e0)) { if (d.moved && !d.cancelled) render(); return; }
-      task.start = toYm(d.ns); task.end = toYm(d.ne);
-      changed();
-      // 暦の先頭が変わっても表示位置を保つ。ただし動かしたバーが固定列の下に隠れないようにする
-      const first = calendarRange().start;
-      box.scrollLeft = Math.min(box.scrollLeft + (d.first - first) * W, (d.ns - first) * W);
-    }, 0);
+    setTimeout(() => { state.barDrag = null; if (d.moved && !d.cancelled) commit(); }, 0);
   };
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
   document.addEventListener('keydown', onKey, true);
 }
+/** 変更を確定する。暦の先頭が変わっても表示位置を保ち、動かした項目は固定列の下に隠さない */
+function commitDrag(oldFirst, leftEdge) {
+  const box = $('#gantt'), W = cssPx('--month');
+  changed();
+  const first = calendarRange().start;
+  box.scrollLeft = Math.min(box.scrollLeft + (oldFirst - first) * W, (leftEdge - first) * W);
+}
+function startBarDrag(e, bar) {
+  const task = rowOf.get(bar.closest('tr')).task, W = cssPx('--month'), first = calendarRange().start;
+  const d = { mode: barZone(e, bar), s0: toIndex(task.start), e0: toIndex(task.end) };
+  let ns = d.s0, ne = d.e0;
+  const period = bar.closest('tr').querySelector('.period');
+  dragSession(e, (px) => {
+    [ns, ne] = draggedRange(d, Math.round(px / W));
+    bar.classList.add('moving');
+    place(bar, ns, ne - ns + 1, first);
+    bar.textContent = barLabel(ns, ne);
+    period.textContent = periodText({ start: toYm(ns), end: toYm(ne) });
+  }, () => {
+    if (ns === d.s0 && ne === d.e0) { render(); return; }
+    task.start = toYm(ns); task.end = toYm(ne);
+    commitDrag(first, ns);
+  });
+}
+function startMilestoneDrag(e, mark) {
+  const tr = mark.closest('tr'), task = rowOf.get(tr).task, W = cssPx('--month'), first = calendarRange().start;
+  const original = task.date, pos0 = datePosition(original), period = tr.querySelector('.period'), label = tr.querySelector('.ms-label');
+  let date = original;
+  dragSession(e, (px) => {
+    date = positionDate(pos0 + px / W);
+    mark.classList.add('moving');
+    placeMilestone(mark, label, { date, name: task.name }, first);
+    period.textContent = periodText({ date });
+  }, () => {
+    if (date === original) { render(); return; }
+    setDate(task, date);
+    commitDrag(first, toIndex(date.slice(0, 7)));
+  });
+}
 function initBarDrag() {
   const box = $('#gantt');
   box.addEventListener('pointerdown', (e) => {
-    const bar = e.target.closest && e.target.closest('.bar');
-    if (bar && e.button === 0 && e.pointerType !== 'touch') startBarDrag(e, bar);
+    const hit = e.target.closest && e.target.closest('.bar,.ms');
+    if (!hit || e.button !== 0 || e.pointerType === 'touch') return;
+    if (hit.classList.contains('ms')) startMilestoneDrag(e, hit); else startBarDrag(e, hit);
   });
   box.addEventListener('pointermove', (e) => {
     const bar = e.target.closest && e.target.closest('.bar');
@@ -621,7 +719,9 @@ async function removeTask(t) {
 function serialize() {
   return JSON.stringify({
     app: APP, version: VERSION,
-    tasks: state.tasks.map(({ group, name, start, end, highlight }) => ({ group, name, start, end, highlight })),
+    tasks: state.tasks.map((t) => (isMilestone(t)
+      ? { type: 'milestone', group: t.group, name: t.name, date: t.date, highlight: t.highlight }
+      : { group: t.group, name: t.name, start: t.start, end: t.end, highlight: t.highlight })),
   }, null, 2) + '\n';
 }
 /** 内容を確認してからタスク一覧を返す。不正な場合は例外にして、編集中のデータを壊さない */
@@ -636,8 +736,13 @@ function parseFile(text) {
     const group = t.group == null ? '' : t.group;
     if (!name) throw new Error(`${where}にタスク名がありません`);
     if (typeof group !== 'string') throw new Error(`${where}のグループが不正です`);
+    const base = { group: group.trim(), name, highlight: t.highlight === true };
+    if (t.type === 'milestone') {
+      if (!validDate(t.date)) throw new Error(`${where}の日付が不正です`);
+      return { ...base, type: 'milestone', date: t.date, start: t.date.slice(0, 7), end: t.date.slice(0, 7) };
+    }
     if (typeof t.start !== 'string' || !validMonth(t.start) || typeof t.end !== 'string' || !validMonth(t.end) || t.start > t.end) throw new Error(`${where}の開始月・終了月が不正です`);
-    return { group: group.trim(), name, start: t.start, end: t.end, highlight: t.highlight === true };
+    return { ...base, start: t.start, end: t.end };
   });
 }
 const PICKER = { types: [{ description: 'スケジュール (JSON)', accept: { 'application/json': ['.json'] } }] };
@@ -706,6 +811,9 @@ function setTheme(t) {
 
 /* ---------- 起動 ---------- */
 $('#add').onclick = () => openTask(null);
+$('#addMs').onclick = () => openTask(null, true);
+$('#kTask').onchange = syncKind;
+$('#kMs').onchange = syncKind;
 $('#open').onclick = guard(openFile);
 $('#save').onclick = guard(save);
 $('#saveAs').onclick = guard(saveAs);
@@ -724,7 +832,7 @@ $('#gName').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submitGroup(); }
 });
 $('#taskDlg').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') { e.preventDefault(); submitTask(); }
+  if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && e.target.tagName === 'INPUT' && !['checkbox', 'radio'].includes(e.target.type)) { e.preventDefault(); submitTask(); }
 });
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || document.querySelector('dialog[open]')) return;
