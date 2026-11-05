@@ -78,7 +78,7 @@ tr.drop-after th,tr.drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .name{flex:1;min-width:0;border:0;background:none;padding:2px 0;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .name:hover{text-decoration:underline}
 tr.hi .name{font-weight:700}
-tr.hi .name::before{content:"★ ";color:var(--bar-hi)}
+tr.hi .name::before{content:"★ ";color:var(--mark,var(--bar-hi))}
 .period{color:var(--muted);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .acts{position:absolute;right:4px;top:6px;display:flex;gap:1px;padding-left:8px;background:var(--panel);opacity:0}
 tr.group .acts{background:var(--group)}
@@ -102,8 +102,8 @@ tr:hover .period,.cell:has(.acts:focus-within) .period{visibility:hidden}
 .ms:hover,.ms:focus-visible{filter:brightness(1.15);outline:0}
 .ms.moving{filter:brightness(1.25);cursor:grabbing}
 .ms-label{position:absolute;top:0;line-height:calc(var(--row) - 1px);font-size:11px;white-space:nowrap;color:var(--muted);pointer-events:none}
-tr.ms-row .name::before{content:"◆ ";color:var(--ms)}
-tr.ms-row.hi .name::before{color:var(--bar-hi)}
+tr.ms-row .name::before{content:"◆ ";color:var(--mark,var(--ms))}
+tr.ms-row.hi .name::before{color:var(--mark,var(--bar-hi))}
 .summary{position:absolute;top:calc(50% - 2px);height:4px;border-radius:2px;background:var(--summary)}
 .empty{padding:34px 20px;text-align:left;color:var(--muted)}
 .empty .btn{margin-top:10px}
@@ -118,6 +118,14 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .fields input[type=text],.fields input[type=month],.fields select{width:100%;height:34px;padding:0 9px;color:var(--text);font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
 .kinds{display:flex;gap:18px}
+.field-title{color:var(--muted);font-size:12px;margin-bottom:4px}
+.swatches{display:flex;flex-wrap:wrap;gap:8px;padding:3px 2px}
+.fields label.swatch{position:relative;display:block;width:24px;height:24px;cursor:pointer}
+.swatch input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
+.swatch span{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:10px;color:var(--muted)}
+.swatch span.auto{border:1px dashed var(--muted)}
+.swatch input:checked+span{outline:2px solid var(--text);outline-offset:2px}
+.swatch input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
 label.check{display:flex;align-items:center;gap:8px;color:var(--text);font-size:13px}
 label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 .error{min-height:20px;margin:0;padding:2px 18px 0;color:var(--danger);font-size:12px}
@@ -162,6 +170,7 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
       <label>開始月<input id="fStart" type="month" placeholder="2026-04"></label>
       <label>終了月<input id="fEnd" type="month" placeholder="2027-03"></label>
     </div>
+    <div><div class="field-title" id="fColorLabel">色</div><div class="swatches" id="fColors" role="radiogroup" aria-labelledby="fColorLabel"></div></div>
     <label class="check"><input id="fHi" type="checkbox">強調表示する</label>
   </div>
   <p class="error" id="fError"></p>
@@ -217,6 +226,20 @@ function japaneseFiscal(y) {
   return `${era}${n === 1 ? '元' : n}年度`;
 }
 const isMilestone = (t) => t.type === 'milestone';
+/* バーとマイルストーンの指定色。両テーマと PowerPoint で同じ色を使う */
+const COLORS = {
+  red: ['赤', 'D92D20'], orange: ['オレンジ', 'EF6C00'], yellow: ['黄', 'F2B705'], green: ['緑', '2E9E5B'], teal: ['青緑', '0E9AA7'],
+  blue: ['青', '2A70C8'], indigo: ['藍', '4F5BD5'], purple: ['紫', '8E44C4'], pink: ['ピンク', 'E0529C'], gray: ['グレー', '7A8494'],
+};
+function luminance(hex) {
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** 背景色の上で読みやすいほうの文字色を返す */
+function textOn(hex) {
+  const l = luminance(hex), white = 1.05 / (l + 0.05), dark = (l + 0.05) / (luminance('1A1113') + 0.05);
+  return white >= dark ? 'FFFFFF' : '1A1113';
+}
 const periodText = (t) => (t.date ? t.date.replaceAll('-', '/') : `${t.start.replace('-', '/')} – ${t.end.replace('-', '/')}`);
 const daysIn = (i) => new Date(yearOf(i), monthOf(i), 0).getDate();
 const toDate = (i, day) => `${toYm(i)}-${String(day).padStart(2, '0')}`;
@@ -296,6 +319,9 @@ function actions(items) {
 function taskRow(t, indented, start, count) {
   const tr = el('tr', [t.highlight ? 'hi' : '', isMilestone(t) ? 'ms-row' : ''].join(' ').trim());
   rowOf.set(tr, { task: t });
+  const custom = t.color && COLORS[t.color][1];
+  if (custom) tr.style.setProperty('--mark', `#${custom}`);
+  const paint = (node) => { if (custom) { node.style.background = `#${custom}`; node.style.color = `#${textOn(custom)}`; } };
   const th = el('th'); th.scope = 'row'; th.draggable = true;
   const peers = state.tasks.filter((x) => x.group === t.group), at = peers.indexOf(t);
   const cell = el('div', 'cell' + (indented ? ' in' : ''));
@@ -315,6 +341,7 @@ function taskRow(t, indented, start, count) {
     mark.onclick = () => { if (!(state.barDrag && state.barDrag.moved)) openTask(t); };
     const label = el('span', 'ms-label');
     placeMilestone(mark, label, t, start);
+    paint(mark);
     td.append(mark, label); tr.append(td);
     return tr;
   }
@@ -323,6 +350,7 @@ function taskRow(t, indented, start, count) {
   bar.type = 'button'; bar.title = `${t.name}: ${periodText(t)}`; bar.setAttribute('aria-label', `${t.name} ${periodText(t)} を編集`);
   bar.onclick = () => { if (!(state.barDrag && state.barDrag.moved)) openTask(t); };
   place(bar, s, months, start);
+  paint(bar);
   td.append(bar); tr.append(td);
   return tr;
 }
@@ -443,6 +471,17 @@ function syncNewGroup() {
   $('#fNewWrap').hidden = !on;
   if (!on) $('#fNew').value = '';
 }
+function buildSwatches() {
+  const box = $('#fColors');
+  const add = (key, name, hex) => {
+    const label = el('label', 'swatch'); label.title = name;
+    const input = el('input'); input.type = 'radio'; input.name = 'color'; input.value = key; input.setAttribute('aria-label', name);
+    const dot = el('span', hex ? '' : 'auto', hex ? null : '自'); if (hex) dot.style.background = `#${hex}`;
+    label.append(input, dot); box.append(label);
+  };
+  add('', '自動', null);
+  for (const [key, [name, hex]] of Object.entries(COLORS)) add(key, name, hex);
+}
 function syncKind() {
   const ms = $('#kMs').checked;
   $('#fDateWrap').hidden = !ms; $('#fMonths').hidden = ms;
@@ -467,6 +506,7 @@ function openTask(t, milestone) {
   $('#fStart').value = t ? (ms ? '' : t.start) : toYm(now);
   $('#fEnd').value = t ? (ms ? '' : t.end) : toYm(now + 2);
   $('#fHi').checked = t ? t.highlight : false;
+  document.querySelector(`input[name="color"][value="${t && t.color ? t.color : ''}"]`).checked = true;
   syncKind();
   $('#taskDlg').showModal();
   $('#fName').focus();
@@ -490,6 +530,8 @@ function submitTask() {
   if (sel === NEW_GROUP && !group) return err('新しいグループ名を入力してください', $('#fNew'));
   if (!name) return err(`${ms ? 'マイルストーン' : 'タスク'}名を入力してください`, $('#fName'));
   const data = { group, name, highlight: $('#fHi').checked };
+  const color = document.querySelector('input[name="color"]:checked').value;
+  if (color) data.color = color;
   if (ms) {
     if (!validDate(date)) return err('日付を入力してください(例: 2026-09-30)', $('#fDate'));
     Object.assign(data, { type: 'milestone', date, start: date.slice(0, 7), end: date.slice(0, 7) });
@@ -500,7 +542,7 @@ function submitTask() {
     Object.assign(data, { start, end });
   }
   if (state.editing) {
-    delete state.editing.type; delete state.editing.date;
+    delete state.editing.type; delete state.editing.date; delete state.editing.color;
     Object.assign(state.editing, data);
   } else state.tasks.push(data);
   state.lastGroup = group;
@@ -720,8 +762,8 @@ function serialize() {
   return JSON.stringify({
     app: APP, version: VERSION,
     tasks: state.tasks.map((t) => (isMilestone(t)
-      ? { type: 'milestone', group: t.group, name: t.name, date: t.date, highlight: t.highlight }
-      : { group: t.group, name: t.name, start: t.start, end: t.end, highlight: t.highlight })),
+      ? { type: 'milestone', group: t.group, name: t.name, date: t.date, highlight: t.highlight, ...(t.color ? { color: t.color } : {}) }
+      : { group: t.group, name: t.name, start: t.start, end: t.end, highlight: t.highlight, ...(t.color ? { color: t.color } : {}) })),
   }, null, 2) + '\n';
 }
 /** 内容を確認してからタスク一覧を返す。不正な場合は例外にして、編集中のデータを壊さない */
@@ -737,6 +779,7 @@ function parseFile(text) {
     if (!name) throw new Error(`${where}にタスク名がありません`);
     if (typeof group !== 'string') throw new Error(`${where}のグループが不正です`);
     const base = { group: group.trim(), name, highlight: t.highlight === true };
+    if (Object.hasOwn(COLORS, t.color)) base.color = t.color; // 知らない色名は自動の色として扱う
     if (t.type === 'milestone') {
       if (!validDate(t.date)) throw new Error(`${where}の日付が不正です`);
       return { ...base, type: 'milestone', date: t.date, start: t.date.slice(0, 7), end: t.date.slice(0, 7) };
@@ -900,7 +943,8 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
       slide.addShape(shapes.RECTANGLE, { x: xOf(a) + 0.02, y: y + rowH / 2 - 0.02, w: (b - a + 1) * mw - 0.04, h: 0.04, fill: { color: S.summary }, line: { color: S.summary, width: 0 }, objectName: `グループ期間: ${r.group}` });
       return;
     }
-    const t = r.task, ms = isMilestone(t), color = t.highlight ? S.hi : ms ? S.ms : S.bar;
+    const t = r.task, ms = isMilestone(t), custom = t.color && COLORS[t.color][1];
+    const color = custom || (t.highlight ? S.hi : ms ? S.ms : S.bar);
     const indent = r.indented ? 0.26 : 0.08, mark = ms ? '◆ ' : t.highlight ? '★ ' : '';
     text(fitText(mark + t.name, S.left - indent - 0.08, 9.5), { x: S.margin + indent, y, w: S.left - indent - 0.04, h: rowH, fontSize: 9.5, bold: t.highlight, objectName: `タスク名: ${t.name}` });
     if (ms) {
@@ -915,7 +959,7 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
     const s = toIndex(t.start), months = toIndex(t.end) - s + 1, w = months * mw - 0.04;
     const label = barLabel(s, s + months - 1);
     const o = { shape: shapes.PENTAGON, x: xOf(s) + 0.02, y: y + rowH * 0.15, w, h: rowH * 0.7, fill: { color }, line: { color, width: 0 }, objectName: `バー: ${t.name}` };
-    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: t.highlight ? S.onHi : S.onBar, align: 'center' });
+    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: custom ? textOn(custom) : t.highlight ? S.onHi : S.onBar, align: 'center' });
     else slide.addShape(o.shape, o);
   });
 }
@@ -995,6 +1039,7 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
 setTheme(store.get('theme') === 'light' ? 'light' : 'dark');
+buildSwatches();
 initDrag();
 initBarDrag();
 render(); refreshStatus();
