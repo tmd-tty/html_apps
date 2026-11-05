@@ -9,3 +9,4 @@ HTMLファイルを保存するだけで使えるブラウザアプリの置き�
 ## アプリ一覧
 
 - [Markdown Studio](markdown-studio/README.md): ローカルフォルダを直接編集する Markdown エディタ
+- [Macro Schedule Editor](macro-schedule-editor/README.md): プロジェクトの大日程を月単位で管理するガントチャート
