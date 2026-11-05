@@ -148,6 +148,7 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
   <button class="btn" id="saveAs" type="button" title="Ctrl / ⌘ + Shift + S">名前を付けて保存</button>
   <div id="status" role="status" aria-live="polite"><i></i><span id="statusText"></span></div>
   <span class="grow"></span>
+  <button class="btn" id="xlsx" type="button">Excel出力</button>
   <button class="btn" id="pptx" type="button">PowerPoint出力</button>
   <button class="btn" id="theme" type="button"></button>
 </header>
@@ -165,10 +166,10 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
     <label>グループ<select id="fGroup"></select></label>
     <label id="fNewWrap" hidden>新しいグループ名<input id="fNew" type="text" maxlength="100"></label>
     <label><span id="fNameLabel"></span><input id="fName" type="text" maxlength="200"></label>
-    <label id="fDateWrap">日付<input id="fDate" type="date"></label>
+    <label id="fDateWrap">日付<input id="fDate" type="date" min="1927-01-01" max="2199-12-31"></label>
     <div class="two" id="fMonths">
-      <label>開始月<input id="fStart" type="month" placeholder="2026-04"></label>
-      <label>終了月<input id="fEnd" type="month" placeholder="2027-03"></label>
+      <label>開始月<input id="fStart" type="month" min="1927-01" max="2199-12" placeholder="2026-04"></label>
+      <label>終了月<input id="fEnd" type="month" min="1927-01" max="2199-12" placeholder="2027-03"></label>
     </div>
     <div><div class="field-title" id="fColorLabel">色</div><div class="swatches" id="fColors" role="radiogroup" aria-labelledby="fColorLabel"></div></div>
     <label class="check"><input id="fHi" type="checkbox">強調表示する</label>
@@ -854,6 +855,13 @@ const SLIDE = {
   ink: '2B1A1C', muted: '75555A', line: 'E6C7CA', grid: 'F4E4E5', fy: 'BB8A91', head1: 'F1D6D9', head2: 'F8E5E6', head3: 'FDF5F5',
   group: 'FCECEC', bar: 'F0B4B8', onBar: '4A0F15', hi: 'C8102E', onHi: 'FFFFFF', ms: '8A5A00', summary: 'C99AA0',
 };
+/** 出力物の図形の塗りと文字の色 */
+function itemColors(t) {
+  const custom = t.color && COLORS[t.color][1];
+  if (custom) return { fill: custom, text: textOn(custom) };
+  if (t.highlight) return { fill: SLIDE.hi, text: SLIDE.onHi };
+  return isMilestone(t) ? { fill: SLIDE.ms, text: SLIDE.onBar } : { fill: SLIDE.bar, text: SLIDE.onBar };
+}
 let pptxReady = null;
 function loadPptx() {
   if (window.PptxGenJS) return Promise.resolve();
@@ -943,8 +951,7 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
       slide.addShape(shapes.RECTANGLE, { x: xOf(a) + 0.02, y: y + rowH / 2 - 0.02, w: (b - a + 1) * mw - 0.04, h: 0.04, fill: { color: S.summary }, line: { color: S.summary, width: 0 }, objectName: `グループ期間: ${r.group}` });
       return;
     }
-    const t = r.task, ms = isMilestone(t), custom = t.color && COLORS[t.color][1];
-    const color = custom || (t.highlight ? S.hi : ms ? S.ms : S.bar);
+    const t = r.task, ms = isMilestone(t), { fill: color, text: labelColor } = itemColors(t);
     const indent = r.indented ? 0.26 : 0.08, mark = ms ? '◆ ' : t.highlight ? '★ ' : '';
     text(fitText(mark + t.name, S.left - indent - 0.08, 9.5), { x: S.margin + indent, y, w: S.left - indent - 0.04, h: rowH, fontSize: 9.5, bold: t.highlight, objectName: `タスク名: ${t.name}` });
     if (ms) {
@@ -959,18 +966,43 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
     const s = toIndex(t.start), months = toIndex(t.end) - s + 1, w = months * mw - 0.04;
     const label = barLabel(s, s + months - 1);
     const o = { shape: shapes.PENTAGON, x: xOf(s) + 0.02, y: y + rowH * 0.15, w, h: rowH * 0.7, fill: { color }, line: { color, width: 0 }, objectName: `バー: ${t.name}` };
-    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: custom ? textOn(custom) : t.highlight ? S.onHi : S.onBar, align: 'center' });
+    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: labelColor, align: 'center' });
     else slide.addShape(o.shape, o);
   });
 }
-/** 調整値が空だとアプリによって先端の長さが幅に連動するので、高さの半分に固定する。
+/** 調整値が空だとアプリによって先端の長さが幅に連動するので、高さの半分に固定し、図形をグループにまとめる。
     ライブラリに指定方法がないため、生成後のスライドを書き換える */
+const OVERLAY_NAME = /^(バー|マイルストーン|マイルストーン名): /, LOOSE_NAME = /^(タイトル|作成日|ページ番号)$/;
+function shapeBox(shapes) {
+  const boxes = shapes.map((x) => x.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/>/).slice(1).map(Number));
+  const left = Math.min(...boxes.map((b) => b[0])), top = Math.min(...boxes.map((b) => b[1]));
+  return { left, top, width: Math.max(...boxes.map((b) => b[0] + b[2])) - left, height: Math.max(...boxes.map((b) => b[1] + b[3])) - top };
+}
+/** 図形を座標を変えずにグループへまとめる。子の座標系を外枠と同じにするので配置は一切動かない */
+function groupXml(id, name, children) {
+  const b = shapeBox(children), at = `<a:off x="${b.left}" y="${b.top}"/><a:ext cx="${b.width}" cy="${b.height}"/>`, inner = `<a:chOff x="${b.left}" y="${b.top}"/><a:chExt cx="${b.width}" cy="${b.height}"/>`;
+  return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm>${at}${inner}</a:xfrm></p:grpSpPr>${children.join('')}</p:grpSp>`;
+}
+/** セルにあたる図形を「スケジュール表」に、それと矢羽、◆を「スケジュール全体」にまとめる */
+function groupSlide(source) {
+  // 文字入りの図形は、ライブラリが名前を二重にエスケープするので1回分に戻す
+  const xml = source.replace(/<p:cNvPr id="\d+" name="[^"]*"/g, (m) => m.replace(/&amp;(amp|lt|gt|quot|apos);/g, '&$1;'));
+  const items = xml.match(/<p:sp>[\s\S]*?<\/p:sp>/g) || [];
+  const nameOf = (x) => unescapeName(x.match(/<p:cNvPr id="\d+" name="([^"]*)"/)[1]);
+  const loose = items.filter((x) => LOOSE_NAME.test(nameOf(x))), overlay = items.filter((x) => OVERLAY_NAME.test(nameOf(x)));
+  const cells = items.filter((x) => !loose.includes(x) && !overlay.includes(x));
+  if (!cells.length) return xml;
+  const first = xml.indexOf(items[0]), last = xml.lastIndexOf(items[items.length - 1]) + items[items.length - 1].length;
+  const table = groupXml(900001, 'スケジュール表', cells);
+  return xml.slice(0, first) + loose.join('') + groupXml(900000, 'スケジュール全体', [table, ...overlay]) + xml.slice(last);
+}
+const unescapeName = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 async function fixArrowTips(data) {
   const zip = await window.JSZip.loadAsync(data);
   const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
   for (const n of slides) {
     const xml = await zip.file(n).async('string');
-    zip.file(n, xml.replaceAll('<a:prstGeom prst="homePlate"><a:avLst></a:avLst></a:prstGeom>', '<a:prstGeom prst="homePlate"><a:avLst><a:gd name="adj" fmla="val 50000"/></a:avLst></a:prstGeom>'));
+    zip.file(n, groupSlide(xml.replaceAll('<a:prstGeom prst="homePlate"><a:avLst></a:avLst></a:prstGeom>', '<a:prstGeom prst="homePlate"><a:avLst><a:gd name="adj" fmla="val 50000"/></a:avLst></a:prstGeom>')));
   }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 }
@@ -993,10 +1025,176 @@ async function exportPptx() {
     const a = el('a'); a.href = URL.createObjectURL(blob); a.download = `${title}.pptx`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    showStatus('saved', `${a.download} を出力しました(${pages.length} スライド)`);
-    const s = $('#status'); s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash');
-    setTimeout(refreshStatus, 5000);
+    flashExported(`${a.download} を出力しました(${pages.length} スライド)`);
   } finally { btn.disabled = false; btn.textContent = label; }
+}
+
+/* ---------- Excel 出力 ---------- */
+/* 矢羽と◆だけを図形にし、それ以外はセルで表現する。外部のライブラリは使わず、xlsx の中身を直接組み立てる */
+const XL = {
+  sheet: 'スケジュール', font: 'Yu Gothic', colTask: 32, colPeriod: 18, colMonth: 6, rowHead: 18, rowData: 21, firstRow: 6, firstCol: 2,
+  rowHeights: [26, 16, 18, 18, 18], monthEmu: 400050, rowEmu: 266700, barTop: 40000, marker: 170000, summary: 'E9CDD1',
+};
+const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'; // XML 名前空間の識別子で通信はしない
+const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const NS_PKG = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const NS_DRAW = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing';
+const NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const xmlText = (t) => String(t).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function columnName(n) { let s = ''; for (let i = n + 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; }
+/** 書式を重複なく登録し、セルから参照する番号を返す */
+function styleBook() {
+  const fonts = [], fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>'], borders = [], xfs = [];
+  const idx = (list, x) => { let i = list.indexOf(x); if (i < 0) { i = list.length; list.push(x); } return i; };
+  const edge = (name, c) => (c ? `<${name} style="${c[0]}"><color rgb="FF${c[1]}"/></${name}>` : `<${name}/>`);
+  const xf = ({ size = 10, bold, color = SLIDE.ink, fill, align, valign = 'center', indent, left, right, top, bottom } = {}) => {
+    const font = idx(fonts, `<font>${bold ? '<b/>' : ''}<sz val="${size}"/><color rgb="FF${color}"/><name val="${XL.font}"/><family val="3"/><charset val="128"/></font>`);
+    const fi = fill ? idx(fills, `<fill><patternFill patternType="solid"><fgColor rgb="FF${fill}"/><bgColor indexed="64"/></patternFill></fill>`) : 0;
+    const bo = idx(borders, `<border>${edge('left', left)}${edge('right', right)}${edge('top', top)}${edge('bottom', bottom)}<diagonal/></border>`);
+    const al = `<alignment${align ? ` horizontal="${align}"` : ''} vertical="${valign}"${indent ? ` indent="${indent}"` : ''}/>`;
+    return idx(xfs, `<xf numFmtId="0" fontId="${font}" fillId="${fi}" borderId="${bo}" xfId="0" applyFont="1"${fi ? ' applyFill="1"' : ''} applyBorder="1" applyAlignment="1">${al}</xf>`);
+  };
+  xf({});
+  const xml = () => `${XML_HEAD}<styleSheet xmlns="${NS_MAIN}"><fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fills.length}">${fills.join('')}</fills><borders count="${borders.length}">${borders.join('')}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  return { xf, xml };
+}
+/* 図形の座標は、セルへの固定情報を使わないアプリのために入れる。Excel はセルへの固定を優先する */
+const PX_EMU = 9525, PT_EMU = 12700, COL_CHAR_PX = 7;
+function columnX(col) {
+  const lead = (XL.colTask + XL.colPeriod) * COL_CHAR_PX * PX_EMU;
+  return lead + (col - XL.firstCol) * XL.monthEmu;
+}
+function rowY(row) { return XL.rowHeights.reduce((a, h) => a + h * PT_EMU, 0) + (row - XL.rowHeights.length) * XL.rowEmu; }
+function arrowShape(id, t, fromCol, toCol, row) {
+  const c = itemColors(t), s = toIndex(t.start), e = toIndex(t.end), label = barLabel(s, e);
+  const anchor = (col, off) => `<xdr:col>${col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${row}</xdr:row><xdr:rowOff>${off}</xdr:rowOff>`;
+  const text = label ? `<a:r><a:rPr lang="ja-JP" sz="800" b="1"><a:solidFill><a:srgbClr val="${c.text}"/></a:solidFill><a:latin typeface="${XL.font}"/><a:ea typeface="${XL.font}"/></a:rPr><a:t>${xmlText(label)}</a:t></a:r>` : `<a:endParaRPr lang="ja-JP" sz="800"/>`;
+  return `<xdr:twoCellAnchor><xdr:from>${anchor(fromCol, XL.barTop)}</xdr:from><xdr:to>${anchor(toCol, XL.rowEmu - XL.barTop)}</xdr:to><xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${xmlText(`バー: ${t.name}`)}"/><xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="${columnX(fromCol)}" y="${rowY(row) + XL.barTop}"/><a:ext cx="${(toCol - fromCol) * XL.monthEmu}" cy="${XL.rowEmu - XL.barTop * 2}"/></a:xfrm><a:prstGeom prst="homePlate"><a:avLst><a:gd name="adj" fmla="val 50000"/></a:avLst></a:prstGeom><a:solidFill><a:srgbClr val="${c.fill}"/></a:solidFill><a:ln><a:noFill/></a:ln></xdr:spPr><xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/>${text}</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>`;
+}
+function diamondShape(id, t, col, offset, row) {
+  const c = itemColors(t), top = Math.round((XL.rowEmu - XL.marker) / 2);
+  return `<xdr:oneCellAnchor><xdr:from><xdr:col>${col}</xdr:col><xdr:colOff>${offset}</xdr:colOff><xdr:row>${row}</xdr:row><xdr:rowOff>${top}</xdr:rowOff></xdr:from><xdr:ext cx="${XL.marker}" cy="${XL.marker}"/><xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${xmlText(`マイルストーン: ${t.name}`)}"/><xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="${columnX(col) + offset}" y="${rowY(row) + top}"/><a:ext cx="${XL.marker}" cy="${XL.marker}"/></a:xfrm><a:prstGeom prst="diamond"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${c.fill}"/></a:solidFill><a:ln><a:noFill/></a:ln></xdr:spPr><xdr:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="ja-JP"/></a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>`;
+}
+/** ワークシートと図形の XML を組み立てる */
+function buildSheet(title) {
+  const { start, count } = calendarRange(), S = SLIDE, book = styleBook(), merges = [], rowsXml = [], shapes = [];
+  const thin = ['thin', S.line], grid = ['thin', S.grid], fy = ['medium', S.fy];
+  const cellXml = (ref, st, v) => (v == null || v === '' ? `<c r="${ref}" s="${st}"/>` : `<c r="${ref}" s="${st}" t="inlineStr"><is><t xml:space="preserve">${xmlText(v)}</t></is></c>`);
+  const lastCol = XL.firstCol + count - 1, month = (i) => XL.firstCol + (i - start);
+  const row = (n, height, cells) => rowsXml.push(`<row r="${n}" ht="${height}" customHeight="1">${cells.map(([c, st, v]) => cellXml(`${columnName(c)}${n}`, st, v)).join('')}</row>`);
+  const leftEdge = (i) => (monthOf(i) === 4 && i !== start ? fy : grid);
+
+  row(1, XL.rowHeights[0], [[0, book.xf({ size: 16, bold: true }), title]]);
+  const d = new Date();
+  row(2, XL.rowHeights[1], [[0, book.xf({ size: 9, color: S.muted }), `作成日 ${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`]]);
+
+  const head = (fill, size = 10, bold = true) => book.xf({ size, bold, fill, align: 'center', left: thin, right: thin, top: thin, bottom: thin });
+  const corner = book.xf({ bold: true, color: S.muted, fill: S.head1, indent: 1, align: 'left', left: thin, right: thin, top: thin, bottom: thin });
+  const band = (rowNo, list, fill) => {
+    const cells = [[0, corner, rowNo === 3 ? 'タスク' : ''], [1, corner, rowNo === 3 ? '期間' : '']];
+    for (const sp of list) {
+      for (let k = 0; k < sp.span; k++) cells.push([month(sp.first) + k, head(fill), k === 0 ? sp.text : '']);
+      if (sp.span > 1) merges.push(`${columnName(month(sp.first))}${rowNo}:${columnName(month(sp.first) + sp.span - 1)}${rowNo}`);
+    }
+    row(rowNo, XL.rowHead, cells);
+  };
+  band(3, spans(start, count, fiscalYear).map((s) => ({ ...s, text: japaneseFiscal(s.key) })), S.head1);
+  band(4, spans(start, count, yearOf).map((s) => ({ ...s, text: `${s.key}年` })), S.head2);
+  const r5 = [[0, corner, ''], [1, corner, '']];
+  for (let i = start; i < start + count; i++) r5.push([month(i), head(S.head3, 9, false), `${monthOf(i)}月`]);
+  row(5, XL.rowHead, r5);
+  merges.push('A3:A5', 'B3:B5');
+
+  let n = XL.firstRow, id = 2;
+  const addRow = (name, period, opts) => {
+    const fill = opts.fill, base = { top: grid, bottom: grid, fill };
+    const cells = [
+      [0, book.xf({ ...base, bold: opts.bold, indent: opts.indent, align: 'left', left: thin, right: grid }), name],
+      [1, book.xf({ ...base, size: 9, color: S.muted, align: 'center', left: grid, right: ['medium', S.fy] }), period],
+    ];
+    for (let i = start; i < start + count; i++) {
+      const on = opts.band && i >= opts.band[0] && i <= opts.band[1];
+      const label = opts.label && i === opts.label[0];
+      cells.push([month(i), book.xf({ ...base, fill: on ? XL.summary : fill, left: leftEdge(i), right: grid, size: label ? 8 : 10, color: label ? S.muted : S.ink }), label ? opts.label[1] : '']);
+    }
+    row(n, XL.rowData, cells);
+    n++;
+  };
+  for (const r of slideRows().flat()) {
+    if (r.group != null) {
+      addRow(`${r.group} (${r.tasks.length}件)`, '', { fill: S.group, bold: true, band: [Math.min(...r.tasks.map((t) => toIndex(t.start))), Math.max(...r.tasks.map((t) => toIndex(t.end)))] });
+      continue;
+    }
+    const t = r.task, rowIdx = n - 1, ms = isMilestone(t), mark = ms ? '◆ ' : t.highlight ? '★ ' : '';
+    const common = { bold: t.highlight, indent: r.indented ? 2 : undefined };
+    if (ms) {
+      const pos = datePosition(t.date) - start, col = Math.floor(pos);
+      const offset = Math.max(0, Math.min(XL.monthEmu - XL.marker, Math.round((pos - col) * XL.monthEmu - XL.marker / 2)));
+      addRow(mark + t.name, periodText(t), { ...common, label: [start + col + 1, `${shortDate(t.date)} ${t.name}`] });
+      shapes.push(diamondShape(id++, t, XL.firstCol + col, offset, rowIdx));
+    } else {
+      const s = toIndex(t.start), e = toIndex(t.end);
+      addRow(mark + t.name, periodText(t), common);
+      shapes.push(arrowShape(id++, t, month(s), month(e) + 1, rowIdx));
+    }
+  }
+  const cols = `<col min="1" max="1" width="${XL.colTask}" customWidth="1"/><col min="2" max="2" width="${XL.colPeriod}" customWidth="1"/><col min="3" max="${lastCol + 1}" width="${XL.colMonth}" customWidth="1"/>`;
+  const sheet = `${XML_HEAD}<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:${columnName(lastCol)}${n - 1}"/><sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane xSplit="2" ySplit="5" topLeftCell="C6" activePane="bottomRight" state="frozen"/><selection pane="bottomRight" activeCell="C6" sqref="C6"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>${cols}</cols><sheetData>${rowsXml.join('')}</sheetData><mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells><pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>${shapes.length ? '<drawing r:id="rId1"/>' : ''}</worksheet>`;
+  const drawing = `${XML_HEAD}<xdr:wsDr xmlns:xdr="${NS_DRAW}" xmlns:a="${NS_A}">${shapes.join('')}</xdr:wsDr>`;
+  return { sheet, drawing, styles: book.xml() };
+}
+/* ZIP はブラウザ標準の圧縮機能で作る */
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+function crc32(bytes) { let c = 0xFFFFFFFF; for (const b of bytes) c = CRC_TABLE[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+async function deflate(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function buildZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  const header = (size) => { const b = new DataView(new ArrayBuffer(size)); return b; };
+  for (const [name, text] of files) {
+    const nameBytes = enc.encode(name), raw = enc.encode(text), data = await deflate(raw), crc = crc32(raw);
+    const fields = (v, at) => {
+      v.setUint16(at, 20, true); v.setUint16(at + 2, 0x0800, true); v.setUint16(at + 4, 8, true); v.setUint16(at + 6, 0, true); v.setUint16(at + 8, 0x21, true);
+      v.setUint32(at + 10, crc, true); v.setUint32(at + 14, data.length, true); v.setUint32(at + 18, raw.length, true); v.setUint16(at + 22, nameBytes.length, true);
+    };
+    const local = header(30); local.setUint32(0, 0x04034b50, true); fields(local, 4);
+    parts.push(new Uint8Array(local.buffer), nameBytes, data);
+    const cd = header(46); cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); fields(cd, 6); cd.setUint32(42, offset, true);
+    central.push(new Uint8Array(cd.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  const end = header(22); end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+async function exportXlsx() {
+  if (!state.tasks.length) { toast('出力するタスクがありません'); return; }
+  const title = (state.fileName || 'スケジュール').replace(/\.json$/i, '');
+  const { sheet, drawing, styles } = buildSheet(title);
+  const ct = 'application/vnd.openxmlformats-officedocument';
+  const blob = await buildZip([
+    ['[Content_Types].xml', `${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${ct}.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${ct}.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="${ct}.spreadsheetml.styles+xml"/><Override PartName="/xl/drawings/drawing1.xml" ContentType="${ct}.drawing+xml"/></Types>`],
+    ['_rels/.rels', `${XML_HEAD}<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${NS_REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml', `${XML_HEAD}<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><sheets><sheet name="${XL.sheet}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">${XL.sheet}!$3:$5</definedName></definedNames></workbook>`],
+    ['xl/_rels/workbook.xml.rels', `${XML_HEAD}<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${NS_REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${NS_REL}/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml', styles],
+    ['xl/worksheets/sheet1.xml', sheet],
+    ['xl/worksheets/_rels/sheet1.xml.rels', `${XML_HEAD}<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${NS_REL}/drawing" Target="../drawings/drawing1.xml"/></Relationships>`],
+    ['xl/drawings/drawing1.xml', drawing],
+  ]);
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = `${title}.xlsx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  flashExported(`${a.download} を出力しました`);
+}
+function flashExported(text) {
+  showStatus('saved', text);
+  const s = $('#status'); s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash');
+  setTimeout(refreshStatus, 5000);
 }
 
 /* ---------- テーマ ---------- */
@@ -1015,6 +1213,7 @@ $('#open').onclick = guard(openFile);
 $('#save').onclick = guard(save);
 $('#saveAs').onclick = guard(saveAs);
 $('#pptx').onclick = guard(exportPptx);
+$('#xlsx').onclick = guard(exportXlsx);
 $('#theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
 $('#fileInput').onchange = guard(async (e) => {
   const f = e.target.files[0];
