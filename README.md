@@ -11,3 +11,4 @@ HTMLファイルを保存するだけで使えるブラウザアプリの置き�
 - [Markdown Studio](markdown-studio/README.md): ローカルフォルダを直接編集する Markdown エディタ
 - [HTML Studio](html-studio/README.md): ローカルフォルダを直接編集する HTML エディタ
 - [Macro Schedule Editor](macro-schedule-editor/README.md): プロジェクトの大日程を月単位で管理するガントチャート
+- [Org Chart Editor](org-chart-editor/README.md): 階層構造の体制図を作成して PowerPoint に出力するツール

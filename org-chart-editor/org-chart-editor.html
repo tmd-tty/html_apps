@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Org Chart Editor</title>
+<style>
+[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#1a1113;--panel:#221619;--card:#2a1b1f;--line:#4d2f35;--link:#85525b;--text:#f4e9ea;--muted:#bda5a9;--hover:#3d2529;
+  --accent:#f0555f;--on-accent:#2a0609;--danger:#ff9186;--ok:#47cd89;--warn:#fdb022;--head:#9c2c38;--on-head:#ffffff;
+}
+[data-theme="light"]{
+  color-scheme:light;
+  --bg:#fbf3f3;--panel:#ffffff;--card:#ffffff;--line:#e6c7ca;--link:#bb8a91;--text:#2b1a1c;--muted:#75555a;--hover:#fae9ea;
+  --accent:#b81d2a;--on-accent:#ffffff;--danger:#a3161f;--ok:#067647;--warn:#b54708;--head:#b81d2a;--on-head:#ffffff;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--text);overflow:hidden;font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
+.btn{height:32px;padding:0 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn:disabled{opacity:.6;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.grow{flex:1}
+#status{display:flex;align-items:center;gap:7px;min-height:32px;padding:0 10px;border-radius:6px;color:var(--muted);min-width:0}
+#status b{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}
+#status i{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+#status.dirty{color:var(--warn)}#status.dirty i{background:var(--warn)}
+#status.saved{color:var(--ok)}#status.saved i{background:var(--ok)}
+#status.flash{animation:flash 1.6s ease-out}
+@keyframes flash{0%,35%{background:var(--ok);color:var(--on-accent)}100%{background:transparent}}
+@media (prefers-reduced-motion:reduce){#status.flash{animation:none;outline:2px solid var(--ok)}}
+
+/* 図。画面と PowerPoint は同じ配置を使う */
+#canvas{flex:1;overflow:auto;min-height:0;padding:32px}
+.stage{position:relative;display:inline-flex;gap:28px;align-items:flex-start;min-width:100%;justify-content:center}
+.stage>svg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.stage line{stroke:var(--link);stroke-width:1.5}
+.branch{display:flex;flex-direction:column;align-items:center}
+.kids{display:flex;gap:28px;align-items:flex-start;padding-top:44px}
+.card{position:relative;width:216px;background:var(--card);border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:grab}
+.card.dragging{opacity:.45}
+.card.drop{outline:2px solid var(--accent);outline-offset:2px}
+.head{display:block;width:100%;padding:7px 10px;border:0;background:var(--head);color:var(--on-head);font-size:13px;font-weight:700;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.body{padding:7px 10px 9px;font-size:12px;line-height:1.5}
+.role{color:var(--muted);font-size:11px;font-weight:700}
+.names{overflow-wrap:anywhere;margin-bottom:3px}
+.names:last-child{margin-bottom:0}
+.more{color:var(--muted);font-size:11px}
+.acts{position:absolute;right:3px;top:3px;display:flex;gap:1px;padding:1px;border-radius:5px;background:var(--panel);opacity:0}
+.card:hover .acts,.acts:focus-within{opacity:1}
+.act{width:22px;height:22px;padding:0;border:0;border-radius:4px;background:none;color:var(--muted);cursor:pointer}
+.act:hover:not(:disabled){background:var(--hover);color:var(--text)}
+.act.del:hover{color:var(--danger)}
+.act:disabled{opacity:.3;cursor:default}
+@media (hover:none){.acts{opacity:1}}
+.empty{margin:auto;color:var(--muted);text-align:center;padding:60px 0}
+.empty .btn{margin-top:10px}
+#measure{position:absolute;left:-999999px;top:0;visibility:hidden}
+
+/* ダイアログ */
+dialog{width:min(460px,calc(100vw - 32px));padding:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 18px 50px rgba(0,0,0,.4)}
+dialog::backdrop{background:rgba(8,10,14,.55)}
+dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
+.fields{display:grid;gap:12px;padding:8px 18px 6px}
+.fields label{display:grid;gap:4px;color:var(--muted);font-size:12px}
+.fields input[type=text],.fields select,.fields textarea{width:100%;padding:6px 9px;color:var(--text);font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.fields input[type=text],.fields select{height:34px}
+.fields textarea{height:84px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field-title{color:var(--muted);font-size:12px;margin-bottom:4px}
+.swatches{display:flex;flex-wrap:wrap;gap:8px;padding:3px 2px}
+.fields label.swatch{position:relative;display:block;width:24px;height:24px;cursor:pointer}
+.swatch input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
+.swatch span{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:10px;color:var(--muted)}
+.swatch span.auto{border:1px dashed var(--muted)}
+.swatch input:checked+span{outline:2px solid var(--text);outline-offset:2px}
+.swatch input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.error{min-height:20px;margin:0;padding:2px 18px 0;color:var(--danger);font-size:12px}
+.msg{margin:0;padding:6px 18px 4px;overflow-wrap:anywhere}
+.foot{display:flex;gap:8px;padding:10px 18px 15px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:10;padding:8px 15px;border-radius:7px;background:var(--danger);color:#fff;max-width:80vw;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+[data-theme="dark"] #toast{color:#2a0603}
+#toast:empty{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Org Chart Editor</h1>
+  <button class="btn primary" id="add" type="button">ノード追加</button>
+  <i class="sep"></i>
+  <button class="btn" id="open" type="button" title="Ctrl / ⌘ + O">開く</button>
+  <button class="btn" id="save" type="button" title="Ctrl / ⌘ + S">上書き保存</button>
+  <button class="btn" id="saveAs" type="button" title="Ctrl / ⌘ + Shift + S">名前を付けて保存</button>
+  <div id="status" role="status" aria-live="polite"><i></i><span id="statusText"></span></div>
+  <span class="grow"></span>
+  <button class="btn" id="pptx" type="button">PowerPoint出力</button>
+  <button class="btn" id="theme" type="button"></button>
+</header>
+<div id="canvas" tabindex="0" aria-label="体制図"></div>
+<div id="measure" aria-hidden="true"></div>
+<div id="toast" role="alert"></div>
+<input id="fileInput" type="file" accept=".json,application/json" hidden>
+
+<dialog id="nodeDlg" aria-labelledby="nodeTitle">
+  <h2 id="nodeTitle"></h2>
+  <div class="fields">
+    <label>グループ名<input id="fGroup" type="text" maxlength="100"></label>
+    <div class="two">
+      <label>リーダー(1行に1人)<textarea id="fLeaders"></textarea></label>
+      <label>メンバー(1行に1人)<textarea id="fMembers"></textarea></label>
+    </div>
+    <label>親ノード<select id="fParent"></select></label>
+    <div><div class="field-title" id="fColorLabel">色</div><div class="swatches" id="fColors" role="radiogroup" aria-labelledby="fColorLabel"></div></div>
+  </div>
+  <p class="error" id="fError"></p>
+  <div class="foot">
+    <button class="btn danger" id="fDelete" type="button">削除</button>
+    <span class="grow"></span>
+    <button class="btn" id="fCancel" type="button">キャンセル</button>
+    <button class="btn primary" id="fOk" type="button"></button>
+  </div>
+</dialog>
+
+<dialog id="askDlg" aria-labelledby="askTitle">
+  <h2 id="askTitle"></h2>
+  <p class="msg" id="askMsg"></p>
+  <div class="foot"><span class="grow"></span><button class="btn" id="askNo" type="button">キャンセル</button><button class="btn" id="askYes" type="button"></button></div>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const APP = 'Org Chart Editor', VERSION = 1, MAX_DEPTH = 30, MAX_NODES = 2000, NS_SVG = 'http://www.w3.org/2000/svg'; // 名前空間の識別子で通信はしない
+const hasFsApi = 'showSaveFilePicker' in window;
+const store = {
+  get(k) { try { return localStorage.getItem('oce.' + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem('oce.' + k, v); } catch { /* 保存できなくても動作は続ける */ } },
+};
+const COLORS = {
+  red: ['赤', 'D92D20'], orange: ['オレンジ', 'EF6C00'], yellow: ['黄', 'F2B705'], green: ['緑', '2E9E5B'], teal: ['青緑', '0E9AA7'],
+  blue: ['青', '2A70C8'], indigo: ['藍', '4F5BD5'], purple: ['紫', '8E44C4'], pink: ['ピンク', 'E0529C'], gray: ['グレー', '7A8494'],
+};
+function luminance(hex) {
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function textOn(hex) {
+  const l = luminance(hex), white = 1.05 / (l + 0.05), dark = (l + 0.05) / (luminance('1A1113') + 0.05);
+  return white >= dark ? 'FFFFFF' : '1A1113';
+}
+
+/* ノードは { group, leaders: [], members: [], color?, children: [] } の木。state.nodes が最上位の並び */
+const state = { nodes: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, parentPreset: null, drag: null };
+const nodeOf = new WeakMap();
+
+/* ---------- 木の操作 ---------- */
+function* walk(list = state.nodes, depth = 0) { for (const n of list) { yield [n, depth]; yield* walk(n.children, depth + 1); } }
+function siblingsOf(node, list = state.nodes) {
+  if (list.includes(node)) return list;
+  for (const n of list) { const f = siblingsOf(node, n.children); if (f) return f; }
+  return null;
+}
+function parentOf(node) { for (const [n] of walk()) if (n.children.includes(node)) return n; return null; }
+function contains(node, target) { for (const [n] of walk([node])) if (n === target) return true; return false; }
+const countOf = (node) => [...walk([node])].length;
+function moveTo(node, parent) {
+  const from = siblingsOf(node), to = parent ? parent.children : state.nodes;
+  if (from === to) return false;
+  from.splice(from.indexOf(node), 1);
+  to.push(node);
+  return true;
+}
+
+/* ---------- 描画 ---------- */
+function cardFor(n, hiddenKids) {
+  const card = el('div', 'card');
+  nodeOf.set(card, n);
+  const custom = n.color && COLORS[n.color][1];
+  const head = el('button', 'head', n.group); head.type = 'button'; head.title = 'クリックで編集';
+  if (custom) { head.style.background = `#${custom}`; head.style.color = `#${textOn(custom)}`; }
+  card.append(head);
+  if (n.leaders.length || n.members.length || hiddenKids) {
+    const body = el('div', 'body');
+    if (n.leaders.length) body.append(el('div', 'role', 'リーダー'), el('div', 'names', n.leaders.join('、')));
+    if (n.members.length) body.append(el('div', 'role', 'メンバー'), el('div', 'names', n.members.join('、')));
+    if (hiddenKids) body.append(el('div', 'more', `配下 ${hiddenKids} グループは別スライド`));
+    card.append(body);
+  }
+  return card;
+}
+function branchFor(n, limit) {
+  const box = el('div', 'branch'), kids = limit === 0 ? [] : n.children;
+  box.append(cardFor(n, limit === 0 ? n.children.length : 0));
+  if (kids.length) {
+    const row = el('div', 'kids');
+    for (const k of kids) row.append(branchFor(k, limit == null ? null : limit - 1));
+    box.append(row);
+  }
+  return box;
+}
+/** 親の下端から子の上端までの線分を、配置済みのカードから求める */
+function connectorLines(stage) {
+  const base = stage.getBoundingClientRect(), rect = (c) => { const r = c.getBoundingClientRect(); return { l: r.left - base.left, t: r.top - base.top, w: r.width, b: r.bottom - base.top }; };
+  const out = [];
+  for (const branch of $$('.branch', stage)) {
+    const row = branch.querySelector(':scope > .kids');
+    if (!row) continue;
+    const p = rect(branch.querySelector(':scope > .card')), kids = [...row.children].map((b) => rect(b.querySelector(':scope > .card')));
+    const px = p.l + p.w / 2, top = Math.min(...kids.map((k) => k.t)), mid = (p.b + top) / 2, xs = kids.map((k) => k.l + k.w / 2);
+    out.push([px, p.b, px, mid]);
+    if (kids.length > 1 || xs[0] !== px) out.push([Math.min(px, ...xs), mid, Math.max(px, ...xs), mid]);
+    kids.forEach((k, i) => out.push([xs[i], mid, xs[i], k.t]));
+  }
+  return out;
+}
+function drawLines(stage) {
+  const svg = document.createElementNS(NS_SVG, 'svg');
+  svg.setAttribute('width', stage.offsetWidth); svg.setAttribute('height', stage.offsetHeight);
+  for (const [x1, y1, x2, y2] of connectorLines(stage)) {
+    const l = document.createElementNS(NS_SVG, 'line');
+    Object.entries({ x1, y1, x2, y2 }).forEach(([k, v]) => l.setAttribute(k, v));
+    svg.append(l);
+  }
+  stage.prepend(svg);
+}
+function act(text, label, run, disabled, cls) {
+  const b = el('button', 'act ' + (cls || ''), text);
+  b.type = 'button'; b.title = label; b.setAttribute('aria-label', label); b.disabled = !!disabled; b.onclick = (e) => { e.stopPropagation(); run(); };
+  return b;
+}
+function addActions(stage) {
+  for (const card of $$('.card', stage)) {
+    const n = nodeOf.get(card), sib = siblingsOf(n), at = sib.indexOf(n);
+    card.draggable = true;
+    $('.head', card).onclick = () => openNode(n);
+    const box = el('div', 'acts');
+    const shift = (d) => { sib.splice(at, 1); sib.splice(at + d, 0, n); changed(); };
+    box.append(
+      act('+', `${n.group} の下に追加`, () => openNode(null, n)),
+      act('◀', `${n.group} を左へ移動`, () => shift(-1), at === 0),
+      act('▶', `${n.group} を右へ移動`, () => shift(1), at === sib.length - 1),
+      act('×', `${n.group} を削除`, () => removeNode(n), false, 'del'),
+    );
+    card.append(box);
+  }
+}
+function render() {
+  const box = $('#canvas'), top = box.scrollTop, left = box.scrollLeft;
+  if (!state.nodes.length) {
+    const e = el('div', 'empty');
+    e.append(el('div', '', 'ノードがありません。'));
+    const b = el('button', 'btn primary', 'ノード追加'); b.type = 'button'; b.onclick = () => openNode(null);
+    e.append(b);
+    box.replaceChildren(e);
+    return;
+  }
+  const stage = el('div', 'stage');
+  stage.append(...state.nodes.map((n) => branchFor(n, null)));
+  box.replaceChildren(stage);
+  addActions(stage); drawLines(stage);
+  box.scrollTop = top; box.scrollLeft = left;
+}
+
+/* ---------- 状態表示 ---------- */
+function showStatus(kind, text) {
+  $('#status').className = kind;
+  const b = el('b', '', text); b.title = text;
+  $('#statusText').replaceChildren(b);
+}
+function refreshStatus() {
+  const name = state.fileName || '新規体制図';
+  document.title = `${state.dirty ? '● ' : ''}${name} - ${APP}`;
+  if (state.dirty) showStatus('dirty', `${name}: 未保存の変更があります`); else showStatus('', name);
+}
+function flashStatus(text) {
+  showStatus('saved', text);
+  const s = $('#status'); s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash');
+}
+function markSaved(text) {
+  flashStatus(`${text}(${new Date().toLocaleTimeString('ja-JP')})`);
+  document.title = `${state.fileName} - ${APP}`;
+}
+let toastTimer;
+function toast(msg) {
+  $('#toast').textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('#toast').textContent = ''; }, 6000);
+}
+function changed() { state.dirty = true; render(); refreshStatus(); }
+const guard = (fn) => async (...a) => {
+  try { await fn(...a); } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    console.error(e);
+    toast(`エラー: ${(e && e.message) || e}`);
+  }
+};
+function ask(title, message, yes, danger) {
+  return new Promise((res) => {
+    const d = $('#askDlg'), y = $('#askYes'), n = $('#askNo');
+    $('#askTitle').textContent = title; $('#askMsg').textContent = message;
+    y.textContent = yes; y.className = 'btn ' + (danger ? 'danger' : 'primary');
+    const done = (v) => { y.onclick = n.onclick = d.oncancel = null; d.close(); res(v); };
+    y.onclick = () => done(true); n.onclick = () => done(false);
+    d.oncancel = (e) => { e.preventDefault(); done(false); };
+    d.showModal(); n.focus();
+  });
+}
+
+/* ---------- ノードの編集 ---------- */
+const splitNames = (s) => s.split(/[\n、,]/).map((x) => x.trim()).filter(Boolean);
+function buildSwatches() {
+  const box = $('#fColors');
+  const add = (key, name, hex) => {
+    const label = el('label', 'swatch'); label.title = name;
+    const input = el('input'); input.type = 'radio'; input.name = 'color'; input.value = key; input.setAttribute('aria-label', name);
+    const dot = el('span', hex ? '' : 'auto', hex ? null : '自'); if (hex) dot.style.background = `#${hex}`;
+    label.append(input, dot); box.append(label);
+  };
+  add('', '自動', null);
+  for (const [key, [name, hex]] of Object.entries(COLORS)) add(key, name, hex);
+}
+/** 親の候補。自分と自分の配下は選べない */
+function fillParents(node, current) {
+  const sel = $('#fParent'), choices = [];
+  sel.replaceChildren(new Option('(なし: 最上位)', ''));
+  for (const [n, depth] of walk()) {
+    if (node && contains(node, n)) continue;
+    sel.append(new Option(`${' '.repeat(depth * 2)}${n.group}`, String(choices.length)));
+    choices.push(n);
+  }
+  state.parentChoices = choices;
+  const i = choices.indexOf(current);
+  sel.value = i < 0 ? '' : String(i);
+}
+function openNode(n, parent) {
+  state.editing = n;
+  $('#nodeTitle').textContent = n ? 'ノードの編集' : 'ノードの追加';
+  $('#fOk').textContent = n ? '保存' : '追加';
+  $('#fDelete').hidden = !n;
+  $('#fError').textContent = '';
+  $('#fGroup').value = n ? n.group : '';
+  $('#fLeaders').value = n ? n.leaders.join('\n') : '';
+  $('#fMembers').value = n ? n.members.join('\n') : '';
+  fillParents(n, n ? parentOf(n) : parent || null);
+  document.querySelector(`input[name="color"][value="${n && n.color ? n.color : ''}"]`).checked = true;
+  $('#nodeDlg').showModal();
+  $('#fGroup').focus();
+}
+function submitNode() {
+  const group = $('#fGroup').value.trim();
+  if (!group) { $('#fError').textContent = 'グループ名を入力してください'; $('#fGroup').focus(); return; }
+  const parent = $('#fParent').value === '' ? null : state.parentChoices[+$('#fParent').value];
+  const data = { group, leaders: splitNames($('#fLeaders').value), members: splitNames($('#fMembers').value) };
+  const color = document.querySelector('input[name="color"]:checked').value;
+  const n = state.editing;
+  if (n) {
+    Object.assign(n, data);
+    delete n.color; if (color) n.color = color;
+    moveTo(n, parent);
+  } else {
+    (parent ? parent.children : state.nodes).push({ ...data, ...(color ? { color } : {}), children: [] });
+  }
+  $('#nodeDlg').close();
+  changed();
+}
+async function removeNode(n) {
+  $('#nodeDlg').close();
+  const count = countOf(n) - 1;
+  if (!await ask('ノードの削除', `「${n.group}」${count ? `と配下の ${count} ノード` : ''}を削除しますか?`, '削除', true)) return;
+  const sib = siblingsOf(n);
+  sib.splice(sib.indexOf(n), 1);
+  changed();
+}
+function initDrag() {
+  const box = $('#canvas');
+  const clear = () => $$('.card.drop').forEach((c) => c.classList.remove('drop'));
+  const canDrop = (e) => { const c = e.target.closest && e.target.closest('.card'), t = c && nodeOf.get(c), d = state.drag; return t && d && !contains(d, t) && parentOf(d) !== t ? c : null; };
+  box.addEventListener('dragstart', (e) => {
+    const c = e.target.closest('.card'); if (!c) return;
+    state.drag = nodeOf.get(c);
+    e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', state.drag.group);
+    c.classList.add('dragging');
+  });
+  box.addEventListener('dragover', (e) => {
+    const c = canDrop(e); clear();
+    if (!c) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'; c.classList.add('drop');
+  });
+  box.addEventListener('dragleave', clear);
+  box.addEventListener('drop', (e) => {
+    const c = canDrop(e), d = state.drag;
+    e.preventDefault(); clear();
+    if (c) { state.drag = null; moveTo(d, nodeOf.get(c)); changed(); }
+  });
+  box.addEventListener('dragend', () => { clear(); state.drag = null; $$('.card.dragging').forEach((x) => x.classList.remove('dragging')); });
+}
+
+/* ---------- ファイル ---------- */
+function plain(n) { return { group: n.group, leaders: n.leaders, members: n.members, ...(n.color ? { color: n.color } : {}), children: n.children.map(plain) }; }
+const serialize = () => JSON.stringify({ app: APP, version: VERSION, nodes: state.nodes.map(plain) }, null, 2) + '\n';
+/** 内容を確認してから木を返す。不正な場合は例外にして、編集中のデータを壊さない */
+function parseFile(text) {
+  let d;
+  try { d = JSON.parse(text.replace(/^﻿/, '')); } catch { throw new Error('JSON として読み込めません'); }
+  if (!d || !Array.isArray(d.nodes)) throw new Error('体制図のファイルではありません(nodes がありません)');
+  let count = 0;
+  const names = (v, where) => {
+    if (v == null) return [];
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error(`${where}の形式が不正です`);
+    return v.map((x) => x.trim()).filter(Boolean);
+  };
+  const node = (x, depth) => {
+    if (++count > MAX_NODES) throw new Error(`ノードが多すぎます(上限 ${MAX_NODES})`);
+    if (depth > MAX_DEPTH) throw new Error(`階層が深すぎます(上限 ${MAX_DEPTH})`);
+    if (!x || typeof x !== 'object') throw new Error(`${count} 件目のノードの形式が不正です`);
+    const group = typeof x.group === 'string' ? x.group.trim() : '';
+    if (!group) throw new Error(`${count} 件目のノードにグループ名がありません`);
+    if (x.children != null && !Array.isArray(x.children)) throw new Error(`「${group}」の children が不正です`);
+    const out = { group, leaders: names(x.leaders, `「${group}」のリーダー`), members: names(x.members, `「${group}」のメンバー`), children: [] };
+    if (Object.hasOwn(COLORS, x.color)) out.color = x.color;
+    out.children = (x.children || []).map((c) => node(c, depth + 1));
+    return out;
+  };
+  return d.nodes.map((x) => node(x, 0));
+}
+const PICKER = { types: [{ description: '体制図 (JSON)', accept: { 'application/json': ['.json'] } }] };
+const suggestedName = () => state.fileName || 'org-chart.json';
+function loaded(text, name, handle, mtime) {
+  state.nodes = parseFile(text);
+  Object.assign(state, { fileName: name, handle, mtime, dirty: false });
+  $('#canvas').scrollTo(0, 0);
+  render(); refreshStatus();
+}
+async function openFile() {
+  if (state.dirty && !await ask('未保存の変更', '保存していない変更は失われます。別のファイルを開きますか?', '破棄して開く', true)) return;
+  if (!hasFsApi) { $('#fileInput').value = ''; $('#fileInput').click(); return; }
+  const [h] = await window.showOpenFilePicker(PICKER);
+  const f = await h.getFile();
+  loaded(await f.text(), f.name, h, f.lastModified);
+}
+function saveDownload(blob, name) {
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+function download() {
+  const name = suggestedName();
+  saveDownload(new Blob([serialize()], { type: 'application/json' }), name);
+  state.fileName = name; state.dirty = false;
+  markSaved(`${name} をダウンロードしました`);
+}
+async function writeTo(h) {
+  const w = await h.createWritable();
+  await w.write(serialize());
+  await w.close();
+  const f = await h.getFile();
+  Object.assign(state, { handle: h, fileName: f.name, mtime: f.lastModified, dirty: false });
+  markSaved(`${f.name} に保存しました`);
+}
+async function saveAs() {
+  if (!hasFsApi) { download(); return; }
+  await writeTo(await window.showSaveFilePicker({ ...PICKER, suggestedName: suggestedName() }));
+}
+async function save() {
+  if (!state.handle) { await saveAs(); return; }
+  const h = state.handle;
+  if (h.requestPermission && await h.requestPermission({ mode: 'readwrite' }) !== 'granted') { toast('ファイルへの書き込みが許可されませんでした'); return; }
+  const f = await h.getFile();
+  if (f.lastModified !== state.mtime && !await ask('ファイルが変更されています', `「${f.name}」は開いた後に他で変更されています。上書きすると、その変更は失われます。`, '上書き保存', true)) return;
+  await writeTo(h);
+}
+
+/* ---------- PowerPoint 出力 ---------- */
+/* ライブラリは押したときにだけ読み込むので、それ以外の操作では通信が発生しない */
+const PPTX_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js';
+const PPTX_SRI = 'sha384-qb0Xhi7LLYpvW1HCK6oMrmDLSY9sy7vwm6ZlV6KjtrlL9yg30+YN4neTwnmX+Kp8';
+const SLIDE = {
+  w: 13.333, h: 7.5, margin: 0.35, top: 0.8, bottom: 0.4, font: 'Yu Gothic', maxScale: 0.0125, minScale: 0.0085, cardPitch: 244, bodyPx: 12, headPx: 13, rolePx: 11,
+  ink: '2B1A1C', muted: '75555A', line: 'E6C7CA', link: 'BB8A91', head: 'B81D2A',
+};
+let pptxReady = null;
+function loadPptx() {
+  if (window.PptxGenJS) return Promise.resolve();
+  pptxReady = pptxReady || new Promise((res, rej) => {
+    const sc = el('script');
+    sc.src = PPTX_URL; sc.integrity = PPTX_SRI; sc.crossOrigin = 'anonymous'; sc.referrerPolicy = 'no-referrer';
+    sc.onload = res;
+    sc.onerror = () => { sc.remove(); pptxReady = null; rej(new Error('PowerPoint 出力の部品を読み込めません。インターネット接続を確認してください')); };
+    document.head.append(sc);
+  });
+  return pptxReady;
+}
+/** 画面と同じ CSS で配置し、カードの位置と線を取り出す */
+function measureLayout(roots, limit) {
+  const stage = el('div', 'stage');
+  stage.style.minWidth = '0';
+  stage.append(...roots.map((n) => branchFor(n, limit)));
+  $('#measure').replaceChildren(stage);
+  const base = stage.getBoundingClientRect();
+  const cards = $$('.card', stage).map((c) => {
+    const r = c.getBoundingClientRect(), n = nodeOf.get(c);
+    return { node: n, x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height, head: $('.head', c).getBoundingClientRect().height, more: $('.more', c)?.textContent };
+  });
+  const out = { width: base.width, height: base.height, cards, lines: connectorLines(stage) };
+  $('#measure').replaceChildren();
+  return out;
+}
+const fitScale = (l) => Math.min(SLIDE.maxScale, (SLIDE.w - SLIDE.margin * 2) / l.width, (SLIDE.h - SLIDE.top - SLIDE.bottom) / l.height);
+/** 1枚で読める大きさに収まらない木は、上の階層と各グループの配下に分ける。
+    同じ階層のノードが多いときは、上の階層も複数のスライドに分ける */
+function planSlides(roots, label) {
+  const whole = measureLayout(roots, null);
+  if (fitScale(whole) >= SLIDE.minScale) return [{ layout: whole, label }];
+  if (roots.length > 1) return roots.flatMap((r) => planSlides([r], r.group));
+  const root = roots[0], kids = root.children;
+  if (!kids.length) return [{ layout: whole, label }]; // これ以上は分けられないので縮小して収める
+  const perSlide = Math.max(1, Math.floor((SLIDE.w - SLIDE.margin * 2) / SLIDE.minScale / SLIDE.cardPitch)), chunks = [];
+  for (let i = 0; i < kids.length; i += perSlide) chunks.push(kids.slice(i, i + perSlide));
+  const overview = chunks.map((children, i) => ({
+    layout: measureLayout([{ ...root, children }], 1),
+    label: chunks.length > 1 ? `${label} (${i + 1}/${chunks.length})` : label,
+  }));
+  return [...overview, ...kids.filter((k) => k.children.length).flatMap((k) => planSlides([k], k.group))];
+}
+function drawSlide(pres, slide, plan, page, pages, title) {
+  const S = SLIDE, { layout } = plan, k = fitScale(layout), shapes = pres.shapes;
+  const x0 = (S.w - layout.width * k) / 2, y0 = S.top + Math.max(0, (S.h - S.top - S.bottom - layout.height * k) / 2);
+  const pt = (px) => Math.max(5, Math.round(px * k * 72 * 0.92 * 10) / 10);
+  const text = (t, o) => slide.addText(t, { fontFace: S.font, color: S.ink, margin: 0, valign: 'middle', lang: 'ja-JP', ...o });
+  text(plan.label === title ? title : `${title} / ${plan.label}`, { x: S.margin, y: 0.2, w: 9.6, h: 0.42, fontSize: 18, bold: true, objectName: 'タイトル' });
+  const d = new Date();
+  text(`作成日 ${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`, { x: S.w - S.margin - 3, y: 0.3, w: 3, h: 0.3, fontSize: 9, color: S.muted, align: 'right', objectName: '作成日' });
+  if (pages > 1) text(`${page} / ${pages}`, { x: S.w - S.margin - 1, y: S.h - 0.32, w: 1, h: 0.22, fontSize: 8, color: S.muted, align: 'right', objectName: 'ページ番号' });
+  for (const [a, b, c, e] of layout.lines) {
+    slide.addShape(shapes.LINE, { x: x0 + Math.min(a, c) * k, y: y0 + Math.min(b, e) * k, w: Math.abs(c - a) * k, h: Math.abs(e - b) * k, line: { color: S.link, width: 1 }, objectName: '接続線' });
+  }
+  for (const c of layout.cards) {
+    const n = c.node, custom = n.color && COLORS[n.color][1], fill = custom || S.head;
+    const x = x0 + c.x * k, y = y0 + c.y * k, w = c.w * k, h = c.h * k, headH = c.head * k, inset = 6 * k * 72;
+    if (c.h - c.head > 1) {
+      const runs = [];
+      const role = (label, names) => {
+        if (!names.length) return;
+        runs.push({ text: label, options: { bold: true, color: S.muted, fontSize: pt(S.rolePx), breakLine: true } });
+        runs.push({ text: names.join('、'), options: { color: S.ink, fontSize: pt(S.bodyPx), breakLine: true } });
+      };
+      role('リーダー', n.leaders); role('メンバー', n.members);
+      if (c.more) runs.push({ text: c.more, options: { color: S.muted, fontSize: pt(S.rolePx) } });
+      text(runs, { shape: shapes.RECTANGLE, x, y: y + headH, w, h: h - headH, fill: { color: 'FFFFFF' }, line: { color: S.line, width: 0.75 }, margin: [inset, inset, 2, 3], valign: 'top', align: 'left', objectName: `本文: ${n.group}` });
+    }
+    text(n.group, { shape: shapes.RECTANGLE, x, y, w, h: headH, fill: { color: fill }, line: { color: fill, width: 0.75 }, fontSize: pt(S.headPx), bold: true, color: custom ? textOn(custom) : 'FFFFFF', align: 'left', margin: [inset, inset, 0, 0], objectName: `グループ: ${n.group}` });
+  }
+}
+async function exportPptx() {
+  if (!state.nodes.length) { toast('出力するノードがありません'); return; }
+  const btn = $('#pptx'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = '出力中…';
+  try {
+    await loadPptx();
+    const pres = new window.PptxGenJS(), title = (state.fileName || '体制図').replace(/\.json$/i, '');
+    pres.layout = 'LAYOUT_WIDE'; pres.title = title; pres.author = APP; pres.company = ''; pres.subject = '体制図';
+    pres.theme = { headFontFace: SLIDE.font, bodyFontFace: SLIDE.font };
+    const plans = planSlides(state.nodes, title);
+    plans.forEach((p, i) => drawSlide(pres, pres.addSlide(), p, i + 1, plans.length, title));
+    saveDownload(await pres.write({ outputType: 'blob' }), `${title}.pptx`);
+    flashStatus(`${title}.pptx を出力しました(${plans.length} スライド)`);
+    setTimeout(refreshStatus, 5000);
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+
+/* ---------- 起動 ---------- */
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  $('#theme').textContent = t === 'dark' ? 'ライトモード' : 'ダークモード';
+  store.set('theme', t);
+}
+$('#add').onclick = () => openNode(null);
+$('#open').onclick = guard(openFile);
+$('#save').onclick = guard(save);
+$('#saveAs').onclick = guard(saveAs);
+$('#pptx').onclick = guard(exportPptx);
+$('#theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+$('#fileInput').onchange = guard(async (e) => { const f = e.target.files[0]; if (f) loaded(await f.text(), f.name, null, null); });
+$('#fOk').onclick = submitNode;
+$('#fCancel').onclick = () => $('#nodeDlg').close();
+$('#fDelete').onclick = () => removeNode(state.editing);
+$('#fGroup').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submitNode(); } });
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || $('dialog[open]')) return;
+  const k = e.key.toLowerCase();
+  if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); }
+});
+window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
+buildSwatches(); initDrag();
+setTheme(store.get('theme') === 'light' ? 'light' : 'dark');
+render(); refreshStatus();
+})();
+</script>
+</body>
+</html>
