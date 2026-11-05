@@ -2,7 +2,7 @@
 
 ## 最優先ルール: アウトバウンド通信の禁止
 
-このリポジトリのアプリは、絶対に外部へ通信してはならない。利便性や機能要件を理由にした例外は認めない。通信が必要そうな要望を受けた場合は、実装せずにユーザーへ確認する。
+このリポジトリのアプリは、下記の例外を除いて、絶対に外部へ通信してはならない。例外はユーザーが明示的に認めたものだけで、利便性や機能要件を理由に増やさない。通信が必要そうな要望を受けた場合は、実装せずにユーザーへ確認する。
 
 ### 禁止事項
 
@@ -11,7 +11,7 @@
 - 下記の例外に当たらない外部スクリプトの読み込み
 - `<iframe>`、`<form action>`、Service Worker、Web App Manifest の使用
 - アナリティクスやエラー収集などの計測
-- 外部 URL へのリンクや `window.open`(クリックで通信が発生するため)
+- 下記の例外に当たらない外部 URL へのリンクや `window.open`(クリックで通信が発生するため)
 
 ### 必須事項
 
@@ -21,7 +21,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'">
 ```
 
-### 唯一の例外: CDN からの JavaScript の読み込み
+### 例外1: CDN からの JavaScript の読み込み
 
 ライブラリの JavaScript に限り、CDN(`cdn.jsdelivr.net`)から読み込んでよい。CSS、フォント、画像は対象外。次をすべて守る。
 
@@ -33,7 +33,15 @@
 
 画像やフォントが必要なら data URI で HTML に埋め込むか、システムフォントを使う。データの保存はブラウザ内(`localStorage` など)か、ユーザーが File System Access API で明示的に選んだローカルフォルダに留める。
 
-ユーザーの文書に含まれる外部 URL は、画像の読み込みやリンクの遷移をせず、文字列として扱う。
+ユーザーの文書に含まれる外部 URL は、下記の例外を除いて、画像の読み込みやリンクの遷移をせず、文字列として扱う。
+
+### 例外2: Markdown Studio の外部リンク
+
+Markdown Studio に限り、プレビュー内の外部リンクをユーザーがクリックしたときは、新しいタブで開いてよい。次をすべて守る。
+
+- ユーザーのクリック以外では開かない
+- 開けるのは `http`、`https`、`mailto` だけにする
+- `window.open` に `noopener,noreferrer` を付ける
 
 ### 完成時の確認
 
