@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja" data-theme="dark">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Macro Schedule Editor</title>
@@ -91,8 +91,8 @@ tr:hover .period,.cell:has(.acts:focus-within) .period{visibility:hidden}
 @media (hover:none){.acts{opacity:1}.period{display:none}}
 .today{position:absolute;top:0;bottom:0;background:var(--now)}
 .fy{position:absolute;top:0;bottom:0;width:1px;background:var(--fy-line)}
-.bar{position:absolute;top:7px;height:23px;padding:0 20px 0 17px;border:0;cursor:pointer;background:var(--bar);color:var(--on-bar);font-size:11px;font-weight:700;text-align:left;white-space:nowrap;overflow:hidden;
-  clip-path:polygon(0 0,calc(100% - 11px) 0,100% 50%,calc(100% - 11px) 100%,0 100%,9px 50%)}
+.bar{position:absolute;top:7px;height:23px;padding:0 20px 0 9px;border:0;cursor:pointer;background:var(--bar);color:var(--on-bar);font-size:11px;font-weight:700;text-align:left;white-space:nowrap;overflow:hidden;
+  clip-path:polygon(0 0,calc(100% - 11px) 0,100% 50%,calc(100% - 11px) 100%,0 100%)}
 .bar:hover,.bar:focus-visible{filter:brightness(1.15);outline:0}
 .bar{user-select:none;-webkit-user-select:none;cursor:grab}
 .bar.moving{filter:brightness(1.25);z-index:1;cursor:grabbing}
@@ -140,6 +140,7 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
   <button class="btn" id="saveAs" type="button" title="Ctrl / ⌘ + Shift + S">名前を付けて保存</button>
   <div id="status" role="status" aria-live="polite"><i></i><span id="statusText"></span></div>
   <span class="grow"></span>
+  <button class="btn" id="pptx" type="button">PowerPoint出力</button>
   <button class="btn" id="theme" type="button"></button>
 </header>
 <div id="gantt" tabindex="0" aria-label="ガントチャート"></div>
@@ -591,8 +592,7 @@ function initDrag() {
 }
 
 /* ---------- バーのドラッグ ---------- */
-/* 左端は矢羽の切り欠き(9px)にポインタが当たらないので、つかめる幅を広めに取る */
-const EDGE = 20, IDX_MIN = YEAR_MIN * 12, IDX_MAX = YEAR_MAX * 12 + 11, SCROLL_ZONE = 30;
+const EDGE = 14, IDX_MIN = YEAR_MIN * 12, IDX_MAX = YEAR_MAX * 12 + 11, SCROLL_ZONE = 30;
 const cssPx = (name) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
 function barZone(e, bar) {
   const r = bar.getBoundingClientRect(), x = e.clientX - r.left;
@@ -802,6 +802,159 @@ const guard = (fn) => async (...a) => {
   }
 };
 
+/* ---------- PowerPoint 出力 ---------- */
+/* ライブラリは押したときにだけ読み込むので、それ以外の操作では通信が発生しない */
+const PPTX_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js';
+const PPTX_SRI = 'sha384-qb0Xhi7LLYpvW1HCK6oMrmDLSY9sy7vwm6ZlV6KjtrlL9yg30+YN4neTwnmX+Kp8';
+const SLIDE = {
+  w: 13.333, h: 7.5, margin: 0.35, titleY: 0.22, top: 0.78, left: 3.0, head: 0.26, bottom: 0.35, rowMax: 0.4, rows: 20, font: 'Yu Gothic',
+  ink: '1D2330', muted: '5B6474', line: 'CFD4DD', grid: 'E6E9EE', fy: '8E98A9', head1: 'DFE3EA', head2: 'EAEDF2', head3: 'F6F7F9',
+  group: 'ECEFF4', bar: '2E78B2', hi: 'D9480F', ms: '6D3FC0', summary: '9AA3B2',
+};
+let pptxReady = null;
+function loadPptx() {
+  if (window.PptxGenJS) return Promise.resolve();
+  pptxReady = pptxReady || new Promise((res, rej) => {
+    const sc = el('script');
+    sc.src = PPTX_URL; sc.integrity = PPTX_SRI; sc.crossOrigin = 'anonymous'; sc.referrerPolicy = 'no-referrer';
+    sc.onload = res;
+    sc.onerror = () => { sc.remove(); pptxReady = null; rej(new Error('PowerPoint 出力の部品を読み込めません。インターネット接続を確認してください')); };
+    document.head.append(sc);
+  });
+  return pptxReady;
+}
+/** 文字幅を概算し、枠に収まらない文字列を省略する。正式名は図形の名前に残す */
+function fitText(text, widthIn, pt) {
+  const max = (widthIn * 72) / pt;
+  let used = 0, out = '';
+  for (const ch of text) {
+    used += /[\x00-\xff]/.test(ch) ? 0.55 : 1;
+    if (used > max) return out.slice(0, -1) + '…';
+    out += ch;
+  }
+  return out;
+}
+const textWidth = (text, pt) => ([...text].reduce((a, c) => a + (/[\x00-\xff]/.test(c) ? 0.55 : 1), 0) * pt) / 72;
+/** 表示順の行に展開し、スライドごとに分ける。見出しだけがページ末に残らないようにする */
+function slideRows() {
+  const rows = [];
+  for (const g of groupNames()) {
+    const list = state.tasks.filter((t) => t.group === g);
+    rows.push({ group: g, tasks: list }, ...list.map((t) => ({ task: t, indented: true })));
+  }
+  rows.push(...state.tasks.filter((t) => !t.group).map((t) => ({ task: t })));
+  const pages = [];
+  for (let i = 0; i < rows.length;) {
+    let n = Math.min(SLIDE.rows, rows.length - i);
+    if (n > 1 && rows[i + n - 1].group != null && i + n < rows.length) n--;
+    pages.push(rows.slice(i, i + n));
+    i += n;
+  }
+  return pages;
+}
+function drawSlide(pres, slide, rows, page, pages, title, rowH) {
+  const S = SLIDE, shapes = pres.shapes, { start, count } = calendarRange();
+  const x0 = S.margin + S.left, mw = (S.w - S.margin * 2 - S.left) / count;
+  const xOf = (i) => x0 + (i - start) * mw;
+  const text = (t, o) => slide.addText(t, { fontFace: S.font, color: S.ink, margin: 0, valign: 'middle', lang: 'ja-JP', ...o });
+  const cell = (t, x, y, w, fill, name, o = {}) => text(fitText(t, w - 0.06, o.fontSize || 9) === t ? t : '', {
+    shape: shapes.RECTANGLE, x, y, w, h: S.head, fill: { color: fill }, line: { color: S.line, width: 0.5 }, fontSize: 9, align: 'center', objectName: name, ...o,
+  });
+
+  text(fitText(title, 9, 18), { x: S.margin, y: S.titleY, w: 9.4, h: 0.42, fontSize: 18, bold: true, objectName: 'タイトル' });
+  const d = new Date();
+  text(`作成日 ${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`, {
+    x: S.w - S.margin - 3, y: S.titleY + 0.1, w: 3, h: 0.3, fontSize: 9, color: S.muted, align: 'right', objectName: '作成日',
+  });
+  if (pages > 1) text(`${page} / ${pages}`, { x: S.w - S.margin - 1, y: S.h - 0.32, w: 1, h: 0.22, fontSize: 8, color: S.muted, align: 'right', objectName: 'ページ番号' });
+
+  const headH = S.head * 3;
+  text('タスク', { shape: shapes.RECTANGLE, x: S.margin, y: S.top, w: S.left, h: headH, fill: { color: S.head1 }, line: { color: S.line, width: 0.5 }, fontSize: 9, bold: true, color: S.muted, align: 'left', margin: [6, 0, 0, 0], objectName: '見出し: タスク' });
+  for (const sp of spans(start, count, fiscalYear)) {
+    const name = japaneseFiscal(sp.key);
+    cell(name, xOf(sp.first), S.top, sp.span * mw, S.head1, `年度: ${name}`, { bold: true });
+  }
+  for (const sp of spans(start, count, yearOf)) cell(`${sp.key}年`, xOf(sp.first), S.top + S.head, sp.span * mw, S.head2, `西暦: ${sp.key}年`, { bold: true });
+  for (let i = start; i < start + count; i++) {
+    const label = mw >= 0.32 ? `${monthOf(i)}月` : mw >= 0.17 ? String(monthOf(i)) : '';
+    cell(label, xOf(i), S.top + S.head * 2, mw, S.head3, `月: ${yearOf(i)}年${monthOf(i)}月`, { fontSize: 8 });
+  }
+
+  const y0 = S.top + headH, bodyH = rows.length * rowH;
+  rows.forEach((r, n) => {
+    const y = y0 + n * rowH, name = r.group != null ? r.group : r.task.name;
+    slide.addShape(shapes.RECTANGLE, { x: S.margin, y, w: S.w - S.margin * 2, h: rowH, fill: r.group != null ? { color: S.group } : { color: 'FFFFFF' }, line: { color: S.grid, width: 0.5 }, objectName: `行: ${name}` });
+  });
+  for (let i = start + 1; i < start + count; i++) {
+    const fy = monthOf(i) === 4;
+    if (!fy && mw < 0.17) continue;
+    slide.addShape(shapes.LINE, { x: xOf(i), y: y0, w: 0, h: bodyH, line: { color: fy ? S.fy : S.grid, width: fy ? 0.75 : 0.5 }, objectName: `${fy ? '年度境界' : '月境界'}: ${yearOf(i)}年${monthOf(i)}月` });
+  }
+  slide.addShape(shapes.LINE, { x: x0, y: y0, w: 0, h: bodyH, line: { color: S.fy, width: 1 }, objectName: 'タスク列の境界' });
+
+  rows.forEach((r, n) => {
+    const y = y0 + n * rowH;
+    if (r.group != null) {
+      text(fitText(`${r.group} (${r.tasks.length}件)`, S.left - 0.16, 9.5), { x: S.margin + 0.08, y, w: S.left - 0.14, h: rowH, fontSize: 9.5, bold: true, objectName: `グループ: ${r.group}` });
+      const a = Math.min(...r.tasks.map((t) => toIndex(t.start))), b = Math.max(...r.tasks.map((t) => toIndex(t.end)));
+      slide.addShape(shapes.RECTANGLE, { x: xOf(a) + 0.02, y: y + rowH / 2 - 0.02, w: (b - a + 1) * mw - 0.04, h: 0.04, fill: { color: S.summary }, line: { color: S.summary, width: 0 }, objectName: `グループ期間: ${r.group}` });
+      return;
+    }
+    const t = r.task, ms = isMilestone(t), color = t.highlight ? S.hi : ms ? S.ms : S.bar;
+    const indent = r.indented ? 0.26 : 0.08, mark = ms ? '◆ ' : t.highlight ? '★ ' : '';
+    text(fitText(mark + t.name, S.left - indent - 0.08, 9.5), { x: S.margin + indent, y, w: S.left - indent - 0.04, h: rowH, fontSize: 9.5, bold: t.highlight, objectName: `タスク名: ${t.name}` });
+    if (ms) {
+      const size = Math.min(0.22, rowH * 0.62), cx = xOf(0) + datePosition(t.date) * mw;
+      const lx = Math.max(x0 + size / 2, cx);
+      slide.addShape(shapes.DIAMOND, { x: lx - size / 2, y: y + (rowH - size) / 2, w: size, h: size, fill: { color }, line: { color, width: 0 }, objectName: `マイルストーン: ${t.name}` });
+      const label = `${shortDate(t.date)} ${t.name}`, lw = Math.min(textWidth(label, 8) + 0.08, 3);
+      const right = lx + size / 2 + 0.04 + lw <= S.w - S.margin;
+      text(fitText(label, lw, 8), { x: right ? lx + size / 2 + 0.04 : lx - size / 2 - 0.04 - lw, y, w: lw, h: rowH, fontSize: 8, color: S.muted, align: right ? 'left' : 'right', objectName: `マイルストーン名: ${t.name}` });
+      return;
+    }
+    const s = toIndex(t.start), months = toIndex(t.end) - s + 1, w = months * mw - 0.04;
+    const label = barLabel(s, s + months - 1);
+    const o = { shape: shapes.PENTAGON, x: xOf(s) + 0.02, y: y + rowH * 0.15, w, h: rowH * 0.7, fill: { color }, line: { color, width: 0 }, objectName: `バー: ${t.name}` };
+    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: 'FFFFFF', align: 'center' });
+    else slide.addShape(o.shape, o);
+  });
+}
+/** 調整値が空だとアプリによって先端の長さが幅に連動するので、高さの半分に固定する。
+    ライブラリに指定方法がないため、生成後のスライドを書き換える */
+async function fixArrowTips(data) {
+  const zip = await window.JSZip.loadAsync(data);
+  const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+  for (const n of slides) {
+    const xml = await zip.file(n).async('string');
+    zip.file(n, xml.replaceAll('<a:prstGeom prst="homePlate"><a:avLst></a:avLst></a:prstGeom>', '<a:prstGeom prst="homePlate"><a:avLst><a:gd name="adj" fmla="val 50000"/></a:avLst></a:prstGeom>'));
+  }
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+}
+async function exportPptx() {
+  if (!state.tasks.length) { toast('出力するタスクがありません'); return; }
+  const btn = $('#pptx'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = '出力中…';
+  try {
+    await loadPptx();
+    const pres = new window.PptxGenJS();
+    const title = (state.fileName || 'スケジュール').replace(/\.json$/i, '');
+    pres.layout = 'LAYOUT_WIDE'; pres.title = title; pres.author = APP; pres.company = ''; pres.subject = '大日程';
+    pres.theme = { headFontFace: SLIDE.font, bodyFontFace: SLIDE.font };
+    const pages = slideRows();
+    // 行が少なければ高さを広げてスライドを埋める。全スライドで同じ高さにそろえる
+    const body = SLIDE.h - SLIDE.top - SLIDE.head * 3 - SLIDE.bottom;
+    const rowH = Math.min(SLIDE.rowMax, body / Math.max(...pages.map((r) => r.length)));
+    pages.forEach((rows, i) => drawSlide(pres, pres.addSlide(), rows, i + 1, pages.length, title, rowH));
+    const blob = await fixArrowTips(await pres.write({ outputType: 'arraybuffer' }));
+    const a = el('a'); a.href = URL.createObjectURL(blob); a.download = `${title}.pptx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    showStatus('saved', `${a.download} を出力しました(${pages.length} スライド)`);
+    const s = $('#status'); s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash');
+    setTimeout(refreshStatus, 5000);
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+
 /* ---------- テーマ ---------- */
 function setTheme(t) {
   document.documentElement.dataset.theme = t;
@@ -817,6 +970,7 @@ $('#kMs').onchange = syncKind;
 $('#open').onclick = guard(openFile);
 $('#save').onclick = guard(save);
 $('#saveAs').onclick = guard(saveAs);
+$('#pptx').onclick = guard(exportPptx);
 $('#theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
 $('#fileInput').onchange = guard(async (e) => {
   const f = e.target.files[0];
