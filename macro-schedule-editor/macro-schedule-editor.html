@@ -9,17 +9,17 @@
 :root{--left:320px;--month:72px;--row:38px;--head:30px}
 [data-theme="dark"]{
   color-scheme:dark;
-  --bg:#14171c;--panel:#1b1f26;--head-1:#262c36;--head-2:#20252e;--head-3:#1b1f26;--group:#242a33;
-  --line:#343b47;--grid:#272d36;--fy-line:#566072;--text:#e6e9ee;--muted:#9aa3b2;--hover:#2c333e;
-  --accent:#58b7ab;--on-accent:#0d1b19;--danger:#f97066;--ok:#47cd89;--warn:#fdb022;
-  --bar:#4a93c9;--on-bar:#071724;--ms:#c4a1f5;--bar-hi:#f79009;--on-bar-hi:#1f1200;--summary:#5d6778;--now:rgba(88,183,171,.12);--now-head:#23514c;
+  --bg:#1a1113;--panel:#221619;--head-1:#3d1f25;--head-2:#301a1f;--head-3:#261719;--group:#301c21;
+  --line:#4d2f35;--grid:#352226;--fy-line:#85525b;--text:#f4e9ea;--muted:#bda5a9;--hover:#3d2529;
+  --accent:#f0555f;--on-accent:#2a0609;--danger:#ff9186;--ok:#47cd89;--warn:#fdb022;
+  --bar:#9c4450;--on-bar:#ffffff;--ms:#f2b84b;--bar-hi:#ff4a50;--on-bar-hi:#2a0406;--summary:#85606a;--now:rgba(240,85,95,.13);--now-head:#6a2730;
 }
 [data-theme="light"]{
   color-scheme:light;
-  --bg:#f3f4f6;--panel:#ffffff;--head-1:#dfe3ea;--head-2:#eaedf2;--head-3:#f6f7f9;--group:#eceff4;
-  --line:#cfd4dd;--grid:#e6e9ee;--fy-line:#8e98a9;--text:#1d2330;--muted:#5b6474;--hover:#e9ecf1;
-  --accent:#17776c;--on-accent:#ffffff;--danger:#b42318;--ok:#067647;--warn:#b54708;
-  --bar:#2e78b2;--on-bar:#ffffff;--ms:#6d3fc0;--bar-hi:#d9480f;--on-bar-hi:#ffffff;--summary:#9aa3b2;--now:rgba(23,119,108,.09);--now-head:#bfe3de;
+  --bg:#fbf3f3;--panel:#ffffff;--head-1:#f1d6d9;--head-2:#f8e5e6;--head-3:#fdf5f5;--group:#fcecec;
+  --line:#e6c7ca;--grid:#f4e4e5;--fy-line:#bb8a91;--text:#2b1a1c;--muted:#75555a;--hover:#fae9ea;
+  --accent:#b81d2a;--on-accent:#ffffff;--danger:#a3161f;--ok:#067647;--warn:#b54708;
+  --bar:#f0b4b8;--on-bar:#4a0f15;--ms:#8a5a00;--bar-hi:#c8102e;--on-bar-hi:#ffffff;--summary:#c99aa0;--now:rgba(184,29,42,.08);--now-head:#f5bcc0;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -808,8 +808,8 @@ const PPTX_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bund
 const PPTX_SRI = 'sha384-qb0Xhi7LLYpvW1HCK6oMrmDLSY9sy7vwm6ZlV6KjtrlL9yg30+YN4neTwnmX+Kp8';
 const SLIDE = {
   w: 13.333, h: 7.5, margin: 0.35, titleY: 0.22, top: 0.78, left: 3.0, head: 0.26, bottom: 0.35, rowMax: 0.4, rows: 20, font: 'Yu Gothic',
-  ink: '1D2330', muted: '5B6474', line: 'CFD4DD', grid: 'E6E9EE', fy: '8E98A9', head1: 'DFE3EA', head2: 'EAEDF2', head3: 'F6F7F9',
-  group: 'ECEFF4', bar: '2E78B2', hi: 'D9480F', ms: '6D3FC0', summary: '9AA3B2',
+  ink: '2B1A1C', muted: '75555A', line: 'E6C7CA', grid: 'F4E4E5', fy: 'BB8A91', head1: 'F1D6D9', head2: 'F8E5E6', head3: 'FDF5F5',
+  group: 'FCECEC', bar: 'F0B4B8', onBar: '4A0F15', hi: 'C8102E', onHi: 'FFFFFF', ms: '8A5A00', summary: 'C99AA0',
 };
 let pptxReady = null;
 function loadPptx() {
@@ -915,7 +915,7 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
     const s = toIndex(t.start), months = toIndex(t.end) - s + 1, w = months * mw - 0.04;
     const label = barLabel(s, s + months - 1);
     const o = { shape: shapes.PENTAGON, x: xOf(s) + 0.02, y: y + rowH * 0.15, w, h: rowH * 0.7, fill: { color }, line: { color, width: 0 }, objectName: `バー: ${t.name}` };
-    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: 'FFFFFF', align: 'center' });
+    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: t.highlight ? S.onHi : S.onBar, align: 'center' });
     else slide.addShape(o.shape, o);
   });
 }
