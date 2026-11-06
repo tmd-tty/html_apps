@@ -166,6 +166,7 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
     <label>グループ<select id="fGroup"></select></label>
     <label id="fNewWrap" hidden>新しいグループ名<input id="fNew" type="text" maxlength="100"></label>
     <label><span id="fNameLabel"></span><input id="fName" type="text" maxlength="200"></label>
+    <label id="fRowWrap">配置する行<select id="fRow"></select></label>
     <label id="fDateWrap">日付<input id="fDate" type="date" min="1927-01-01" max="2199-12-31"></label>
     <div class="two" id="fMonths">
       <label>開始月<input id="fStart" type="month" min="1927-01" max="2199-12" placeholder="2026-04"></label>
@@ -184,8 +185,8 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 </dialog>
 
 <dialog id="groupDlg" aria-labelledby="groupTitle">
-  <h2 id="groupTitle">グループ名の変更</h2>
-  <div class="fields"><label>グループ名<input id="gName" type="text" maxlength="100"></label></div>
+  <h2 id="groupTitle"></h2>
+  <div class="fields"><label><span id="gLabel"></span><input id="gName" type="text" maxlength="100"></label></div>
   <p class="error" id="gError"></p>
   <div class="foot"><span class="grow"></span><button class="btn" id="gCancel" type="button">キャンセル</button><button class="btn primary" id="gOk" type="button">変更</button></div>
 </dialog>
@@ -209,9 +210,11 @@ const store = {
   set(k, v) { try { localStorage.setItem('mse.' + k, v); } catch { /* 保存できなくても動作は続ける */ } },
 };
 
-/* state.tasks の順序がそのまま表示順になる。マイルストーンは type と date を持ち、start / end は日付の月 */
+/* state.tasks の順序がそのまま表示順になる。マイルストーンは type と date を持ち、start / end は日付の月。
+   同じグループで row が同じ項目は1つの行に並ぶ */
 const state = { tasks: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, lastGroup: '', renaming: null, drag: null, barDrag: null };
 const rowOf = new WeakMap(); // 行要素 → { task } または { group }
+const itemOf = new WeakMap(); // バーや◆の要素 → 項目
 
 /* ---------- 年月 ---------- */
 const toIndex = (ym) => { const [y, m] = ym.split('-').map(Number); return y * 12 + m - 1; };
@@ -272,6 +275,37 @@ function groupNames() {
 }
 
 /* ---------- 描画 ---------- */
+/** グループ内の項目を行にまとめる。row を持たない項目はそれだけで1行になる */
+function rowEntries(group) {
+  const out = [], byRow = new Map();
+  for (const t of state.tasks.filter((x) => x.group === group)) {
+    if (t.row && byRow.has(t.row)) { byRow.get(t.row).items.push(t); continue; }
+    const e = { row: t.row || '', items: [t] };
+    if (t.row) byRow.set(t.row, e);
+    out.push(e);
+  }
+  return out;
+}
+const isShared = (e) => e.items.length > 1;
+const entryName = (e) => (isShared(e) ? e.row : e.items[0].name);
+const rowMates = (t) => (t.row ? state.tasks.filter((x) => x.group === t.group && x.row === t.row) : [t]);
+const entryPeriod = (e) => {
+  if (!isShared(e)) return periodText(e.items[0]);
+  const a = e.items.map((t) => t.start).sort()[0], b = e.items.map((t) => t.end).sort().pop();
+  return periodText({ start: a, end: b });
+};
+const milestoneNote = (t) => `${shortDate(t.date)} ${t.name}`;
+/** ◆の名前を置く側を決める。同じ行の矢羽に重なるなら反対側へ、どちらも塞がっていれば出さない */
+function milestoneSide(t, rowItems) {
+  const bars = rowItems.filter((x) => !isMilestone(x));
+  if (!bars.length) return 'right';
+  const px = [...milestoneNote(t)].reduce((a, c) => a + (/[\x00-\xff]/.test(c) ? 6 : 11), 0), span = px / 72, gap = 0.2;
+  const pos = datePosition(t.date), free = (a, b) => !bars.some((x) => toIndex(x.start) < b && toIndex(x.end) + 1 > a);
+  if (free(pos + gap, pos + gap + span)) return 'right';
+  return free(pos - gap - span, pos - gap) ? 'left' : 'none';
+}
+/** 矢羽の中の文字。1行に複数並ぶときは、どの項目かが分かるよう名前を出す */
+const barCaption = (t, shared) => (shared ? t.name : barLabel(toIndex(t.start), toIndex(t.end)));
 function headerCell(text, span, cls) {
   const th = el('th', cls);
   th.colSpan = span; th.title = text; th.scope = 'col';
@@ -297,11 +331,13 @@ function track(start, count, width) {
   td.style.width = width;
   return td;
 }
-function placeMilestone(mark, label, t, first) {
+function placeMilestone(mark, label, t, first, side = 'right') {
   const x = datePosition(t.date) - first;
   mark.style.left = `max(2px, calc(var(--month) * ${x} - 9px))`;
-  label.style.left = `max(25px, calc(var(--month) * ${x} + 14px))`;
-  label.textContent = `${shortDate(t.date)} ${t.name}`;
+  label.style.left = side === 'left' ? `calc(var(--month) * ${x} - 14px)` : `max(25px, calc(var(--month) * ${x} + 14px))`;
+  label.style.transform = side === 'left' ? 'translateX(-100%)' : '';
+  label.hidden = side === 'none';
+  label.textContent = milestoneNote(t);
 }
 function place(node, from, months, start) {
   node.style.left = `calc(var(--month) * ${from - start} + 3px)`;
@@ -317,42 +353,54 @@ function actions(items) {
   }
   return box;
 }
-function taskRow(t, indented, start, count) {
-  const tr = el('tr', [t.highlight ? 'hi' : '', isMilestone(t) ? 'ms-row' : ''].join(' ').trim());
-  rowOf.set(tr, { task: t });
+/** ドラッグを離した直後のクリックは編集として扱わない */
+const justDragged = () => (state.barDrag && state.barDrag.moved) || (state.dragEndedAt != null && performance.now() - state.dragEndedAt < 300);
+function appendItem(td, t, shared, start, rowItems) {
   const custom = t.color && COLORS[t.color][1];
-  if (custom) tr.style.setProperty('--mark', `#${custom}`);
   const paint = (node) => { if (custom) { node.style.background = `#${custom}`; node.style.color = `#${textOn(custom)}`; } };
+  const open = () => { if (!justDragged()) openTask(t); };
+  const tip = `${t.name}: ${periodText(t)}`, aria = `${t.name} ${periodText(t)} を編集`;
+  if (isMilestone(t)) {
+    const mark = el('button', 'ms' + (t.highlight ? ' hi' : ''));
+    mark.type = 'button'; mark.title = tip; mark.setAttribute('aria-label', aria); mark.onclick = open;
+    itemOf.set(mark, t);
+    const label = el('span', 'ms-label');
+    placeMilestone(mark, label, t, start, milestoneSide(t, rowItems));
+    paint(mark);
+    td.append(mark, label);
+    return;
+  }
+  const s = toIndex(t.start), months = toIndex(t.end) - s + 1;
+  const bar = el('button', 'bar' + (t.highlight ? ' hi' : ''), barCaption(t, shared));
+  bar.type = 'button'; bar.title = tip; bar.setAttribute('aria-label', aria); bar.onclick = open;
+  itemOf.set(bar, t);
+  place(bar, s, months, start);
+  paint(bar);
+  td.append(bar);
+}
+function taskRow(entry, indented, start, count) {
+  const t = entry.items[0], shared = isShared(entry), label = entryName(entry);
+  const tr = el('tr', shared ? 'shared' : [t.highlight ? 'hi' : '', isMilestone(t) ? 'ms-row' : ''].join(' ').trim());
+  rowOf.set(tr, { task: t });
+  const custom = !shared && t.color && COLORS[t.color][1];
+  if (custom) tr.style.setProperty('--mark', `#${custom}`);
   const th = el('th'); th.scope = 'row'; th.draggable = true;
-  const peers = state.tasks.filter((x) => x.group === t.group), at = peers.indexOf(t);
+  const peers = rowEntries(t.group), at = peers.findIndex((e) => e.items.includes(t));
   const cell = el('div', 'cell' + (indented ? ' in' : ''));
-  const name = el('button', 'name', t.name); name.type = 'button'; name.title = `${t.name}(クリックで編集)`;
-  name.onclick = () => openTask(t);
-  cell.append(name, el('span', 'period', periodText(t)), actions([
-    { text: '▲', label: `${t.name} を上へ移動`, disabled: at === 0, run: () => mutate(() => moveTaskBeside(t, peers[at - 1], false)) },
-    { text: '▼', label: `${t.name} を下へ移動`, disabled: at === peers.length - 1, run: () => mutate(() => moveTaskBeside(t, peers[at + 1], true)) },
-    { text: '×', cls: 'del', label: `${t.name} を削除`, run: () => removeTask(t) },
-  ]));
+  const name = el('button', 'name', label); name.type = 'button'; name.title = `${label}(クリックで${shared ? '行の名前を変更' : '編集'})`;
+  name.onclick = () => (shared ? openRow(entry) : openTask(t));
+  const buttons = [
+    { text: '▲', label: `${label} を上へ移動`, disabled: at === 0, run: () => mutate(() => moveTaskBeside(t, peers[at - 1].items[0], false)) },
+    { text: '▼', label: `${label} を下へ移動`, disabled: at === peers.length - 1, run: () => mutate(() => moveTaskBeside(t, peers[at + 1].items[0], true)) },
+  ];
+  if (!shared) buttons.push({ text: '×', cls: 'del', label: `${label} を削除`, run: () => removeTask(t) });
+  cell.append(name, el('span', 'period', entryPeriod(entry)), actions(buttons));
   th.append(cell); tr.append(th);
 
   const td = track(start, count);
-  if (isMilestone(t)) {
-    const mark = el('button', 'ms' + (t.highlight ? ' hi' : ''));
-    mark.type = 'button'; mark.title = `${t.name}: ${periodText(t)}`; mark.setAttribute('aria-label', `${t.name} ${periodText(t)} を編集`);
-    mark.onclick = () => { if (!(state.barDrag && state.barDrag.moved)) openTask(t); };
-    const label = el('span', 'ms-label');
-    placeMilestone(mark, label, t, start);
-    paint(mark);
-    td.append(mark, label); tr.append(td);
-    return tr;
-  }
-  const s = toIndex(t.start), months = toIndex(t.end) - s + 1;
-  const bar = el('button', 'bar' + (t.highlight ? ' hi' : ''), barLabel(s, s + months - 1));
-  bar.type = 'button'; bar.title = `${t.name}: ${periodText(t)}`; bar.setAttribute('aria-label', `${t.name} ${periodText(t)} を編集`);
-  bar.onclick = () => { if (!(state.barDrag && state.barDrag.moved)) openTask(t); };
-  place(bar, s, months, start);
-  paint(bar);
-  td.append(bar); tr.append(td);
+  for (const it of entry.items.filter((x) => !isMilestone(x))) appendItem(td, it, shared, start, entry.items);
+  for (const it of entry.items.filter(isMilestone)) appendItem(td, it, shared, start, entry.items); // ◆は矢羽の上に重ねる
+  tr.append(td);
   return tr;
 }
 function groupRow(name, tasks, start, count) {
@@ -398,9 +446,9 @@ function render() {
   for (const g of groupNames()) {
     const list = state.tasks.filter((t) => t.group === g);
     tbody.append(groupRow(g, list, start, count));
-    for (const t of list) tbody.append(taskRow(t, true, start, count));
+    for (const e of rowEntries(g)) tbody.append(taskRow(e, true, start, count));
   }
-  for (const t of state.tasks.filter((x) => !x.group)) tbody.append(taskRow(t, false, start, count));
+  for (const e of rowEntries('')) tbody.append(taskRow(e, false, start, count));
   if (!state.tasks.length) {
     const tr = el('tr', 'none'), th = el('th');
     const box2 = el('div', 'empty');
@@ -471,6 +519,18 @@ function syncNewGroup() {
   const on = $('#fGroup').value === NEW_GROUP;
   $('#fNewWrap').hidden = !on;
   if (!on) $('#fNew').value = '';
+  fillRows();
+}
+/** 選択中のグループの行を候補にする。この項目だけの行は候補に出さない */
+function fillRows() {
+  const group = $('#fGroup').value, me = state.editing, sel = $('#fRow');
+  const choices = group === NEW_GROUP ? [] : rowEntries(group).filter((e) => isShared(e) || e.items[0] !== me);
+  state.rowChoices = choices;
+  sel.replaceChildren(new Option('(この項目だけの行)', ''));
+  choices.forEach((e, i) => sel.append(new Option(entryName(e), String(i))));
+  const mine = me ? choices.findIndex((e) => e.items.includes(me)) : -1;
+  sel.value = mine < 0 ? '' : String(mine);
+  $('#fRowWrap').hidden = !choices.length;
 }
 function buildSwatches() {
   const box = $('#fColors');
@@ -542,8 +602,14 @@ function submitTask() {
     if (start > end) return err('終了月は開始月以降にしてください', $('#fEnd'));
     Object.assign(data, { start, end });
   }
+  const chosen = $('#fRow').value === '' ? null : state.rowChoices[+$('#fRow').value];
+  if (chosen) {
+    const label = chosen.row || chosen.items[0].name;
+    for (const it of chosen.items) it.row = label;
+    data.row = label;
+  }
   if (state.editing) {
-    delete state.editing.type; delete state.editing.date; delete state.editing.color;
+    delete state.editing.type; delete state.editing.date; delete state.editing.color; delete state.editing.row;
     Object.assign(state.editing, data);
   } else state.tasks.push(data);
   state.lastGroup = group;
@@ -555,8 +621,12 @@ function submitTask() {
 /** 配列の並びを表示順(グループごと、最後にグループなし)にそろえる */
 function normalize() {
   const out = [];
-  for (const g of groupNames()) out.push(...state.tasks.filter((t) => t.group === g));
-  out.push(...state.tasks.filter((t) => !t.group));
+  for (const g of [...groupNames(), '']) {
+    for (const e of rowEntries(g)) {
+      if (!isShared(e)) delete e.items[0].row; // 1項目だけになった行は通常の行に戻す
+      out.push(...e.items);
+    }
+  }
   state.tasks = out;
 }
 function mutate(op) {
@@ -565,19 +635,23 @@ function mutate(op) {
   normalize();
   if (serialize() !== before) changed();
 }
+/* 行にまとまった項目は一緒に動かす */
 function moveTaskBeside(t, target, after) {
-  if (t === target) return;
-  const l = state.tasks;
-  l.splice(l.indexOf(t), 1);
-  t.group = target.group;
-  l.splice(l.indexOf(target) + (after ? 1 : 0), 0, t);
+  const mates = rowMates(t), anchor = rowMates(target);
+  if (mates.includes(target)) return;
+  const rest = state.tasks.filter((x) => !mates.includes(x));
+  const at = after ? rest.indexOf(anchor[anchor.length - 1]) + 1 : rest.indexOf(anchor[0]);
+  for (const m of mates) m.group = target.group;
+  rest.splice(at, 0, ...mates);
+  state.tasks = rest;
 }
 function moveTaskIntoGroup(t, g) {
-  const l = state.tasks;
-  if (l.find((x) => x.group === g) === t) return; // 既に先頭。外すとグループの順序が変わるので何もしない
-  l.splice(l.indexOf(t), 1);
-  t.group = g;
-  l.splice(l.findIndex((x) => x.group === g), 0, t);
+  const mates = rowMates(t);
+  if (mates.includes(state.tasks.find((x) => x.group === g))) return; // 既に先頭。外すとグループの順序が変わるので何もしない
+  const rest = state.tasks.filter((x) => !mates.includes(x));
+  for (const m of mates) m.group = g;
+  rest.splice(rest.findIndex((x) => x.group === g), 0, ...mates);
+  state.tasks = rest;
 }
 function moveGroup(g, target, after) {
   if (g === target) return;
@@ -596,7 +670,7 @@ function dropTarget(e) {
   if (!ref || !d) return null;
   const r = tr.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
   if (d.group != null) return ref.group != null && ref.group !== d.group ? { tr, ref, after } : null;
-  if (ref.task === d.task) return null;
+  if (rowMates(d.task).includes(ref.task)) return null;
   return { tr, ref, after: ref.group != null ? true : after };
 }
 function initDrag() {
@@ -672,8 +746,9 @@ function dragSession(e, update, commit) {
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', onUp);
     document.removeEventListener('keydown', onKey, true);
-    // 直後のクリックで編集画面が開かないよう、クリックの処理が終わってから確定する
-    setTimeout(() => { state.barDrag = null; if (d.moved && !d.cancelled) commit(); }, 0);
+    if (d.moved) state.dragEndedAt = performance.now();
+    state.barDrag = null;
+    if (d.moved && !d.cancelled) commit();
   };
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
@@ -688,7 +763,7 @@ function commitDrag(oldFirst, leftEdge) {
   box.scrollLeft = Math.min(box.scrollLeft + (oldFirst - first) * W, (leftEdge - first) * W);
 }
 function startBarDrag(e, bar) {
-  const task = rowOf.get(bar.closest('tr')).task, W = cssPx('--month'), first = calendarRange().start;
+  const task = itemOf.get(bar), W = cssPx('--month'), first = calendarRange().start, shared = rowMates(task).length > 1;
   const d = { mode: barZone(e, bar), s0: toIndex(task.start), e0: toIndex(task.end) };
   let ns = d.s0, ne = d.e0;
   const period = bar.closest('tr').querySelector('.period');
@@ -696,6 +771,7 @@ function startBarDrag(e, bar) {
     [ns, ne] = draggedRange(d, Math.round(px / W));
     bar.classList.add('moving');
     place(bar, ns, ne - ns + 1, first);
+    if (shared) return; // 名前を出す行は文字も行全体の期間もドロップ時に更新する
     bar.textContent = barLabel(ns, ne);
     period.textContent = periodText({ start: toYm(ns), end: toYm(ne) });
   }, () => {
@@ -705,14 +781,15 @@ function startBarDrag(e, bar) {
   });
 }
 function startMilestoneDrag(e, mark) {
-  const tr = mark.closest('tr'), task = rowOf.get(tr).task, W = cssPx('--month'), first = calendarRange().start;
-  const original = task.date, pos0 = datePosition(original), period = tr.querySelector('.period'), label = tr.querySelector('.ms-label');
+  const tr = mark.closest('tr'), task = itemOf.get(mark), W = cssPx('--month'), first = calendarRange().start, shared = rowMates(task).length > 1;
+  const original = task.date, pos0 = datePosition(original), period = tr.querySelector('.period'), label = mark.nextElementSibling;
   let date = original;
   dragSession(e, (px) => {
     date = positionDate(pos0 + px / W);
     mark.classList.add('moving');
-    placeMilestone(mark, label, { date, name: task.name }, first);
-    period.textContent = periodText({ date });
+    const moved = { ...task, date };
+    placeMilestone(mark, label, moved, first, milestoneSide(moved, rowMates(task)));
+    if (!shared) period.textContent = periodText({ date });
   }, () => {
     if (date === original) { render(); return; }
     setDate(task, date);
@@ -733,17 +810,25 @@ function initBarDrag() {
 }
 
 /* ---------- グループ名の変更 ---------- */
-function openGroup(name) {
-  state.renaming = name;
+function openRow(entry) { openGroup(entry.row, entry); }
+function openGroup(name, entry) {
+  state.renaming = name; state.renamingRow = entry || null;
+  $('#groupTitle').textContent = entry ? '行の名前の変更' : 'グループ名の変更';
+  $('#gLabel').textContent = entry ? '行の名前' : 'グループ名';
   $('#gName').value = name; $('#gError').textContent = '';
   $('#groupDlg').showModal();
   $('#gName').select();
 }
 async function submitGroup() {
   const old = state.renaming, v = $('#gName').value.trim();
-  if (!v) { $('#gError').textContent = 'グループ名を入力してください'; $('#gName').focus(); return; }
+  if (!v) { $('#gError').textContent = '名前を入力してください'; $('#gName').focus(); return; }
   $('#groupDlg').close();
   if (v === old) return;
+  if (state.renamingRow) {
+    for (const t of state.renamingRow.items) t.row = v;
+    changed();
+    return;
+  }
   const list = state.tasks.filter((t) => t.group === old);
   if (groupNames().includes(v) && !await ask('グループの統合', `「${v}」は既にあります。「${old}」の ${list.length} 件を「${v}」に統合しますか?`, '統合')) return;
   for (const t of list) t.group = v;
@@ -763,8 +848,8 @@ function serialize() {
   return JSON.stringify({
     app: APP, version: VERSION,
     tasks: state.tasks.map((t) => (isMilestone(t)
-      ? { type: 'milestone', group: t.group, name: t.name, date: t.date, highlight: t.highlight, ...(t.color ? { color: t.color } : {}) }
-      : { group: t.group, name: t.name, start: t.start, end: t.end, highlight: t.highlight, ...(t.color ? { color: t.color } : {}) })),
+      ? { type: 'milestone', group: t.group, name: t.name, date: t.date, highlight: t.highlight, ...(t.color ? { color: t.color } : {}), ...(t.row ? { row: t.row } : {}) }
+      : { group: t.group, name: t.name, start: t.start, end: t.end, highlight: t.highlight, ...(t.color ? { color: t.color } : {}), ...(t.row ? { row: t.row } : {}) })),
   }, null, 2) + '\n';
 }
 /** 内容を確認してからタスク一覧を返す。不正な場合は例外にして、編集中のデータを壊さない */
@@ -781,6 +866,7 @@ function parseFile(text) {
     if (typeof group !== 'string') throw new Error(`${where}のグループが不正です`);
     const base = { group: group.trim(), name, highlight: t.highlight === true };
     if (Object.hasOwn(COLORS, t.color)) base.color = t.color; // 知らない色名は自動の色として扱う
+    if (typeof t.row === 'string' && t.row.trim()) base.row = t.row.trim();
     if (t.type === 'milestone') {
       if (!validDate(t.date)) throw new Error(`${where}の日付が不正です`);
       return { ...base, type: 'milestone', date: t.date, start: t.date.slice(0, 7), end: t.date.slice(0, 7) };
@@ -891,9 +977,9 @@ function slideRows() {
   const rows = [];
   for (const g of groupNames()) {
     const list = state.tasks.filter((t) => t.group === g);
-    rows.push({ group: g, tasks: list }, ...list.map((t) => ({ task: t, indented: true })));
+    rows.push({ group: g, tasks: list }, ...rowEntries(g).map((e) => ({ ...e, indented: true })));
   }
-  rows.push(...state.tasks.filter((t) => !t.group).map((t) => ({ task: t })));
+  rows.push(...rowEntries(''));
   const pages = [];
   for (let i = 0; i < rows.length;) {
     let n = Math.min(SLIDE.rows, rows.length - i);
@@ -933,7 +1019,7 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
 
   const y0 = S.top + headH, bodyH = rows.length * rowH;
   rows.forEach((r, n) => {
-    const y = y0 + n * rowH, name = r.group != null ? r.group : r.task.name;
+    const y = y0 + n * rowH, name = r.group != null ? r.group : entryName(r);
     slide.addShape(shapes.RECTANGLE, { x: S.margin, y, w: S.w - S.margin * 2, h: rowH, fill: r.group != null ? { color: S.group } : { color: 'FFFFFF' }, line: { color: S.grid, width: 0.5 }, objectName: `行: ${name}` });
   });
   for (let i = start + 1; i < start + count; i++) {
@@ -951,27 +1037,32 @@ function drawSlide(pres, slide, rows, page, pages, title, rowH) {
       slide.addShape(shapes.RECTANGLE, { x: xOf(a) + 0.02, y: y + rowH / 2 - 0.02, w: (b - a + 1) * mw - 0.04, h: 0.04, fill: { color: S.summary }, line: { color: S.summary, width: 0 }, objectName: `グループ期間: ${r.group}` });
       return;
     }
-    const t = r.task, ms = isMilestone(t), { fill: color, text: labelColor } = itemColors(t);
-    const indent = r.indented ? 0.26 : 0.08, mark = ms ? '◆ ' : t.highlight ? '★ ' : '';
-    text(fitText(mark + t.name, S.left - indent - 0.08, 9.5), { x: S.margin + indent, y, w: S.left - indent - 0.04, h: rowH, fontSize: 9.5, bold: t.highlight, objectName: `タスク名: ${t.name}` });
-    if (ms) {
-      const size = Math.min(0.22, rowH * 0.62), cx = xOf(0) + datePosition(t.date) * mw;
-      const lx = Math.max(x0 + size / 2, cx);
-      slide.addShape(shapes.DIAMOND, { x: lx - size / 2, y: y + (rowH - size) / 2, w: size, h: size, fill: { color }, line: { color, width: 0 }, objectName: `マイルストーン: ${t.name}` });
-      const label = `${shortDate(t.date)} ${t.name}`, lw = Math.min(textWidth(label, 8) + 0.08, 3);
-      const right = lx + size / 2 + 0.04 + lw <= S.w - S.margin;
-      text(fitText(label, lw, 8), { x: right ? lx + size / 2 + 0.04 : lx - size / 2 - 0.04 - lw, y, w: lw, h: rowH, fontSize: 8, color: S.muted, align: right ? 'left' : 'right', objectName: `マイルストーン名: ${t.name}` });
-      return;
-    }
-    const s = toIndex(t.start), months = toIndex(t.end) - s + 1, w = months * mw - 0.04;
-    const label = barLabel(s, s + months - 1);
-    const o = { shape: shapes.PENTAGON, x: xOf(s) + 0.02, y: y + rowH * 0.15, w, h: rowH * 0.7, fill: { color }, line: { color, width: 0 }, objectName: `バー: ${t.name}` };
-    if (label && textWidth(label, 8) + 0.3 < w) text(label, { ...o, fontSize: 8, bold: true, color: labelColor, align: 'center' });
-    else slide.addShape(o.shape, o);
+    const shared = isShared(r), first = r.items[0], indent = r.indented ? 0.26 : 0.08;
+    const mark = shared ? '' : isMilestone(first) ? '◆ ' : first.highlight ? '★ ' : '';
+    const label = entryName(r);
+    text(fitText(mark + label, S.left - indent - 0.08, 9.5), { x: S.margin + indent, y, w: S.left - indent - 0.04, h: rowH, fontSize: 9.5, bold: !shared && first.highlight, objectName: `タスク名: ${label}` });
+    const draw = (t) => {
+      const { fill: color, text: labelColor } = itemColors(t);
+      if (isMilestone(t)) {
+        const size = Math.min(0.22, rowH * 0.62), cx = xOf(0) + datePosition(t.date) * mw;
+        const lx = Math.max(x0 + size / 2, cx);
+        slide.addShape(shapes.DIAMOND, { x: lx - size / 2, y: y + (rowH - size) / 2, w: size, h: size, fill: { color }, line: { color, width: 0 }, objectName: `マイルストーン: ${t.name}` });
+        const side = milestoneSide(t, r.items);
+        if (side === 'none') return;
+        const note = milestoneNote(t), lw = Math.min(textWidth(note, 8) + 0.08, 3);
+        const right = side === 'right' && lx + size / 2 + 0.04 + lw <= S.w - S.margin;
+        text(fitText(note, lw, 8), { x: right ? lx + size / 2 + 0.04 : lx - size / 2 - 0.04 - lw, y, w: lw, h: rowH, fontSize: 8, color: S.muted, align: right ? 'left' : 'right', objectName: `マイルストーン名: ${t.name}` });
+        return;
+      }
+      const s = toIndex(t.start), months = toIndex(t.end) - s + 1, w = months * mw - 0.04, caption = barCaption(t, shared);
+      const o = { shape: shapes.PENTAGON, x: xOf(s) + 0.02, y: y + 0.04, w, h: rowH - 0.08, fill: { color }, line: { color, width: 0 }, objectName: `バー: ${t.name}` };
+      if (caption && textWidth(caption, 8) + 0.3 < w) text(caption, { ...o, fontSize: 8, bold: true, color: labelColor, align: 'center' });
+      else slide.addShape(o.shape, o);
+    };
+    r.items.filter((t) => !isMilestone(t)).forEach(draw);
+    r.items.filter(isMilestone).forEach(draw); // ◆は矢羽の上に重ねる
   });
 }
-/** 調整値が空だとアプリによって先端の長さが幅に連動するので、高さの半分に固定し、図形をグループにまとめる。
-    ライブラリに指定方法がないため、生成後のスライドを書き換える */
 const OVERLAY_NAME = /^(バー|マイルストーン|マイルストーン名): /, LOOSE_NAME = /^(タイトル|作成日|ページ番号)$/;
 function shapeBox(shapes) {
   const boxes = shapes.map((x) => x.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/>/).slice(1).map(Number));
@@ -1066,8 +1157,8 @@ function columnX(col) {
   return lead + (col - XL.firstCol) * XL.monthEmu;
 }
 function rowY(row) { return XL.rowHeights.reduce((a, h) => a + h * PT_EMU, 0) + (row - XL.rowHeights.length) * XL.rowEmu; }
-function arrowShape(id, t, fromCol, toCol, row) {
-  const c = itemColors(t), s = toIndex(t.start), e = toIndex(t.end), label = barLabel(s, e);
+function arrowShape(id, t, fromCol, toCol, row, label) {
+  const c = itemColors(t);
   const anchor = (col, off) => `<xdr:col>${col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${row}</xdr:row><xdr:rowOff>${off}</xdr:rowOff>`;
   const text = label ? `<a:r><a:rPr lang="ja-JP" sz="800" b="1"><a:solidFill><a:srgbClr val="${c.text}"/></a:solidFill><a:latin typeface="${XL.font}"/><a:ea typeface="${XL.font}"/></a:rPr><a:t>${xmlText(label)}</a:t></a:r>` : `<a:endParaRPr lang="ja-JP" sz="800"/>`;
   return `<xdr:twoCellAnchor><xdr:from>${anchor(fromCol, XL.barTop)}</xdr:from><xdr:to>${anchor(toCol, XL.rowEmu - XL.barTop)}</xdr:to><xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${xmlText(`バー: ${t.name}`)}"/><xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="${columnX(fromCol)}" y="${rowY(row) + XL.barTop}"/><a:ext cx="${(toCol - fromCol) * XL.monthEmu}" cy="${XL.rowEmu - XL.barTop * 2}"/></a:xfrm><a:prstGeom prst="homePlate"><a:avLst><a:gd name="adj" fmla="val 50000"/></a:avLst></a:prstGeom><a:solidFill><a:srgbClr val="${c.fill}"/></a:solidFill><a:ln><a:noFill/></a:ln></xdr:spPr><xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/>${text}</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>`;
@@ -1115,8 +1206,8 @@ function buildSheet(title) {
     ];
     for (let i = start; i < start + count; i++) {
       const on = opts.band && i >= opts.band[0] && i <= opts.band[1];
-      const label = opts.label && i === opts.label[0];
-      cells.push([month(i), book.xf({ ...base, fill: on ? XL.summary : fill, left: leftEdge(i), right: grid, size: label ? 8 : 10, color: label ? S.muted : S.ink }), label ? opts.label[1] : '']);
+      const label = opts.labels && opts.labels.get(i);
+      cells.push([month(i), book.xf({ ...base, fill: on ? XL.summary : fill, left: leftEdge(i), right: grid, size: label ? 8 : 10, color: label ? S.muted : S.ink, align: label && label.left ? 'right' : undefined }), label ? label.text : '']);
     }
     row(n, XL.rowData, cells);
     n++;
@@ -1126,18 +1217,20 @@ function buildSheet(title) {
       addRow(`${r.group} (${r.tasks.length}件)`, '', { fill: S.group, bold: true, band: [Math.min(...r.tasks.map((t) => toIndex(t.start))), Math.max(...r.tasks.map((t) => toIndex(t.end)))] });
       continue;
     }
-    const t = r.task, rowIdx = n - 1, ms = isMilestone(t), mark = ms ? '◆ ' : t.highlight ? '★ ' : '';
-    const common = { bold: t.highlight, indent: r.indented ? 2 : undefined };
-    if (ms) {
-      const pos = datePosition(t.date) - start, col = Math.floor(pos);
-      const offset = Math.max(0, Math.min(XL.monthEmu - XL.marker, Math.round((pos - col) * XL.monthEmu - XL.marker / 2)));
-      addRow(mark + t.name, periodText(t), { ...common, label: [start + col + 1, `${shortDate(t.date)} ${t.name}`] });
-      shapes.push(diamondShape(id++, t, XL.firstCol + col, offset, rowIdx));
-    } else {
-      const s = toIndex(t.start), e = toIndex(t.end);
-      addRow(mark + t.name, periodText(t), common);
-      shapes.push(arrowShape(id++, t, month(s), month(e) + 1, rowIdx));
+    const shared = isShared(r), first = r.items[0], rowIdx = n - 1, labels = new Map();
+    const mark = shared ? '' : isMilestone(first) ? '◆ ' : first.highlight ? '★ ' : '';
+    for (const t of r.items) {
+      if (isMilestone(t)) {
+        const pos = datePosition(t.date) - start, col = Math.floor(pos);
+        const offset = Math.max(0, Math.min(XL.monthEmu - XL.marker, Math.round((pos - col) * XL.monthEmu - XL.marker / 2)));
+        const side = milestoneSide(t, r.items);
+        if (side !== 'none') labels.set(start + col + (side === 'left' ? -1 : 1), { text: milestoneNote(t), left: side === 'left' });
+        shapes.push(diamondShape(id++, t, XL.firstCol + col, offset, rowIdx));
+      } else {
+        shapes.unshift(arrowShape(id++, t, month(toIndex(t.start)), month(toIndex(t.end)) + 1, rowIdx, barCaption(t, shared))); // ◆を矢羽の上に重ねる
+      }
     }
+    addRow(mark + entryName(r), entryPeriod(r), { bold: !shared && first.highlight, indent: r.indented ? 2 : undefined, labels });
   }
   const cols = `<col min="1" max="1" width="${XL.colTask}" customWidth="1"/><col min="2" max="2" width="${XL.colPeriod}" customWidth="1"/><col min="3" max="${lastCol + 1}" width="${XL.colMonth}" customWidth="1"/>`;
   const sheet = `${XML_HEAD}<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:${columnName(lastCol)}${n - 1}"/><sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane xSplit="2" ySplit="5" topLeftCell="C6" activePane="bottomRight" state="frozen"/><selection pane="bottomRight" activeCell="C6" sqref="C6"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>${cols}</cols><sheetData>${rowsXml.join('')}</sheetData><mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells><pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>${shapes.length ? '<drawing r:id="rId1"/>' : ''}</worksheet>`;
