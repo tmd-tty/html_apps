@@ -53,9 +53,10 @@ h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
 .card.drop{outline:2px solid var(--accent);outline-offset:2px}
 .head{display:block;width:100%;padding:7px 10px;border:0;background:var(--head);color:var(--on-head);font-size:13px;font-weight:700;text-align:left;cursor:pointer;overflow-wrap:anywhere}
 .body{padding:7px 10px 9px;font-size:12px;line-height:1.5}
-.role{color:var(--muted);font-size:11px;font-weight:700}
 .names{overflow-wrap:anywhere;margin-bottom:3px}
 .names:last-child{margin-bottom:0}
+.names.lead{font-weight:700}
+.note{margin-top:5px;padding-top:4px;border-top:1px dashed var(--line);color:var(--muted);font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}
 .more{color:var(--muted);font-size:11px}
 .acts{position:absolute;right:3px;top:3px;display:flex;gap:1px;padding:1px;border-radius:5px;background:var(--panel);opacity:0}
 .card:hover .acts,.acts:focus-within{opacity:1}
@@ -77,6 +78,7 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
 .fields input[type=text],.fields select,.fields textarea{width:100%;padding:6px 9px;color:var(--text);font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
 .fields input[type=text],.fields select{height:34px}
 .fields textarea{height:84px;resize:vertical}
+.fields textarea#fNote{height:64px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .field-title{color:var(--muted);font-size:12px;margin-bottom:4px}
 .swatches{display:flex;flex-wrap:wrap;gap:8px;padding:3px 2px}
@@ -120,6 +122,7 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
       <label>リーダー(1行に1人)<textarea id="fLeaders"></textarea></label>
       <label>メンバー(1行に1人)<textarea id="fMembers"></textarea></label>
     </div>
+    <label>備考<textarea id="fNote" maxlength="1000"></textarea></label>
     <label>親ノード<select id="fParent"></select></label>
     <div><div class="field-title" id="fColorLabel">色</div><div class="swatches" id="fColors" role="radiogroup" aria-labelledby="fColorLabel"></div></div>
   </div>
@@ -146,6 +149,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const APP = 'Org Chart Editor', VERSION = 1, MAX_DEPTH = 30, MAX_NODES = 2000, NS_SVG = 'http://www.w3.org/2000/svg'; // 名前空間の識別子で通信はしない
+const LEADER_MARK = '★'; // リーダーの名前の後に付ける目印
 const hasFsApi = 'showSaveFilePicker' in window;
 const store = {
   get(k) { try { return localStorage.getItem('oce.' + k); } catch { return null; } },
@@ -164,7 +168,7 @@ function textOn(hex) {
   return white >= dark ? 'FFFFFF' : '1A1113';
 }
 
-/* ノードは { group, leaders: [], members: [], color?, children: [] } の木。state.nodes が最上位の並び */
+/* ノードは { group, leaders: [], members: [], note?, color?, children: [] } の木。state.nodes が最上位の並び */
 const state = { nodes: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, parentPreset: null, drag: null };
 const nodeOf = new WeakMap();
 
@@ -187,6 +191,7 @@ function moveTo(node, parent) {
 }
 
 /* ---------- 描画 ---------- */
+const leaderLine = (n) => n.leaders.map((x) => x + LEADER_MARK).join('、');
 function cardFor(n, hiddenKids) {
   const card = el('div', 'card');
   nodeOf.set(card, n);
@@ -194,10 +199,11 @@ function cardFor(n, hiddenKids) {
   const head = el('button', 'head', n.group); head.type = 'button'; head.title = 'クリックで編集';
   if (custom) { head.style.background = `#${custom}`; head.style.color = `#${textOn(custom)}`; }
   card.append(head);
-  if (n.leaders.length || n.members.length || hiddenKids) {
+  if (n.leaders.length || n.members.length || n.note || hiddenKids) {
     const body = el('div', 'body');
-    if (n.leaders.length) body.append(el('div', 'role', 'リーダー'), el('div', 'names', n.leaders.join('、')));
-    if (n.members.length) body.append(el('div', 'role', 'メンバー'), el('div', 'names', n.members.join('、')));
+    if (n.leaders.length) body.append(el('div', 'names lead', leaderLine(n)));
+    if (n.members.length) body.append(el('div', 'names', n.members.join('、')));
+    if (n.note) body.append(el('div', 'note', n.note));
     if (hiddenKids) body.append(el('div', 'more', `配下 ${hiddenKids} グループは別スライド`));
     card.append(body);
   }
@@ -356,6 +362,7 @@ function openNode(n, parent) {
   $('#fGroup').value = n ? n.group : '';
   $('#fLeaders').value = n ? n.leaders.join('\n') : '';
   $('#fMembers').value = n ? n.members.join('\n') : '';
+  $('#fNote').value = n ? n.note || '' : '';
   fillParents(n, n ? parentOf(n) : parent || null);
   document.querySelector(`input[name="color"][value="${n && n.color ? n.color : ''}"]`).checked = true;
   $('#nodeDlg').showModal();
@@ -366,11 +373,14 @@ function submitNode() {
   if (!group) { $('#fError').textContent = 'グループ名を入力してください'; $('#fGroup').focus(); return; }
   const parent = $('#fParent').value === '' ? null : state.parentChoices[+$('#fParent').value];
   const data = { group, leaders: splitNames($('#fLeaders').value), members: splitNames($('#fMembers').value) };
+  const note = $('#fNote').value.trim();
+  if (note) data.note = note;
   const color = document.querySelector('input[name="color"]:checked').value;
   const n = state.editing;
   if (n) {
+    delete n.note; delete n.color;
     Object.assign(n, data);
-    delete n.color; if (color) n.color = color;
+    if (color) n.color = color;
     moveTo(n, parent);
   } else {
     (parent ? parent.children : state.nodes).push({ ...data, ...(color ? { color } : {}), children: [] });
@@ -411,7 +421,7 @@ function initDrag() {
 }
 
 /* ---------- ファイル ---------- */
-function plain(n) { return { group: n.group, leaders: n.leaders, members: n.members, ...(n.color ? { color: n.color } : {}), children: n.children.map(plain) }; }
+function plain(n) { return { group: n.group, leaders: n.leaders, members: n.members, ...(n.note ? { note: n.note } : {}), ...(n.color ? { color: n.color } : {}), children: n.children.map(plain) }; }
 const serialize = () => JSON.stringify({ app: APP, version: VERSION, nodes: state.nodes.map(plain) }, null, 2) + '\n';
 /** 内容を確認してから木を返す。不正な場合は例外にして、編集中のデータを壊さない */
 function parseFile(text) {
@@ -432,6 +442,8 @@ function parseFile(text) {
     if (!group) throw new Error(`${count} 件目のノードにグループ名がありません`);
     if (x.children != null && !Array.isArray(x.children)) throw new Error(`「${group}」の children が不正です`);
     const out = { group, leaders: names(x.leaders, `「${group}」のリーダー`), members: names(x.members, `「${group}」のメンバー`), children: [] };
+    if (x.note != null && typeof x.note !== 'string') throw new Error(`「${group}」の備考が不正です`);
+    if (x.note && x.note.trim()) out.note = x.note.trim();
     if (Object.hasOwn(COLORS, x.color)) out.color = x.color;
     out.children = (x.children || []).map((c) => node(c, depth + 1));
     return out;
@@ -490,7 +502,7 @@ async function save() {
 const PPTX_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js';
 const PPTX_SRI = 'sha384-qb0Xhi7LLYpvW1HCK6oMrmDLSY9sy7vwm6ZlV6KjtrlL9yg30+YN4neTwnmX+Kp8';
 const SLIDE = {
-  w: 13.333, h: 7.5, margin: 0.35, top: 0.8, bottom: 0.4, font: 'Yu Gothic', maxScale: 0.0125, minScale: 0.0085, cardPitch: 244, bodyPx: 12, headPx: 13, rolePx: 11,
+  w: 13.333, h: 7.5, margin: 0.35, top: 0.8, bottom: 0.4, font: 'Yu Gothic', maxScale: 0.0125, minScale: 0.0085, cardPitch: 244, bodyPx: 12, headPx: 13, notePx: 11,
   ink: '2B1A1C', muted: '75555A', line: 'E6C7CA', link: 'BB8A91', head: 'B81D2A',
 };
 let pptxReady = null;
@@ -554,13 +566,10 @@ function drawSlide(pres, slide, plan, page, pages, title) {
     const x = x0 + c.x * k, y = y0 + c.y * k, w = c.w * k, h = c.h * k, headH = c.head * k, inset = 6 * k * 72;
     if (c.h - c.head > 1) {
       const runs = [];
-      const role = (label, names) => {
-        if (!names.length) return;
-        runs.push({ text: label, options: { bold: true, color: S.muted, fontSize: pt(S.rolePx), breakLine: true } });
-        runs.push({ text: names.join('、'), options: { color: S.ink, fontSize: pt(S.bodyPx), breakLine: true } });
-      };
-      role('リーダー', n.leaders); role('メンバー', n.members);
-      if (c.more) runs.push({ text: c.more, options: { color: S.muted, fontSize: pt(S.rolePx) } });
+      if (n.leaders.length) runs.push({ text: leaderLine(n), options: { bold: true, color: S.ink, fontSize: pt(S.bodyPx), breakLine: true } });
+      if (n.members.length) runs.push({ text: n.members.join('、'), options: { color: S.ink, fontSize: pt(S.bodyPx), breakLine: true } });
+      if (n.note) for (const line of n.note.split('\n')) runs.push({ text: line, options: { color: S.muted, fontSize: pt(S.notePx), breakLine: true } });
+      if (c.more) runs.push({ text: c.more, options: { color: S.muted, fontSize: pt(S.notePx) } });
       text(runs, { shape: shapes.RECTANGLE, x, y: y + headH, w, h: h - headH, fill: { color: 'FFFFFF' }, line: { color: S.line, width: 0.75 }, margin: [inset, inset, 2, 3], valign: 'top', align: 'left', objectName: `本文: ${n.group}` });
     }
     text(n.group, { shape: shapes.RECTANGLE, x, y, w, h: headH, fill: { color: fill }, line: { color: fill, width: 0.75 }, fontSize: pt(S.headPx), bold: true, color: custom ? textOn(custom) : 'FFFFFF', align: 'left', margin: [inset, inset, 0, 0], objectName: `グループ: ${n.group}` });
