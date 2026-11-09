@@ -41,8 +41,9 @@ h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
 .grow{flex:1}
-#status{display:flex;align-items:center;gap:7px;min-height:32px;padding:0 10px;border-radius:6px;color:var(--muted);min-width:0}
-#status b{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+#statusText{min-width:0;display:flex}
+#status{display:flex;align-items:center;gap:7px;min-height:32px;padding:0 10px;border-radius:6px;color:var(--muted);flex:1 1 0;min-width:120px} /* 長い表示は省略して、ツールバーを1段に保つ */
+#status b{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #status i{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
 #status.dirty{color:var(--warn)}#status.dirty i{background:var(--warn)}
 #status.saved{color:var(--ok)}#status.saved i{background:var(--ok)}
@@ -51,6 +52,17 @@ h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
 @media (prefers-reduced-motion:reduce){#status.flash{animation:none;outline:2px solid var(--ok)}}
 
 /* ガント */
+/* タブ */
+#tabs{display:flex;align-items:stretch;height:34px;flex:none;background:var(--bg);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:thin}
+.tab{display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;max-width:240px;border-right:1px solid var(--line);cursor:pointer;color:var(--muted);flex:none;user-select:none}
+.tab:hover{background:var(--hover)}
+.tab.on{background:var(--panel);color:var(--text);box-shadow:inset 0 2px 0 var(--accent)}
+.tab .tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab .dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:none;visibility:hidden}
+.tab.dirty .dot{visibility:visible}
+.tab .x,#newTab{width:22px;height:22px;padding:0;border:0;border-radius:4px;background:none;color:inherit;cursor:pointer;flex:none}
+.tab .x:hover,#newTab:hover{background:var(--hover);color:var(--text)}
+#newTab{align-self:center;margin:0 6px;color:var(--muted);font-size:16px;line-height:1}
 #gantt{flex:1;overflow:auto;min-height:0;background:var(--panel)}
 table{border-collapse:separate;border-spacing:0;table-layout:fixed}
 col.c-left{width:var(--left)}col.c-month{width:var(--month)}
@@ -147,11 +159,11 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
   <button class="btn" id="save" type="button" title="Ctrl / ⌘ + S">上書き保存</button>
   <button class="btn" id="saveAs" type="button" title="Ctrl / ⌘ + Shift + S">名前を付けて保存</button>
   <div id="status" role="status" aria-live="polite"><i></i><span id="statusText"></span></div>
-  <span class="grow"></span>
   <button class="btn" id="xlsx" type="button">Excel出力</button>
   <button class="btn" id="pptx" type="button">PowerPoint出力</button>
   <button class="btn" id="theme" type="button"></button>
 </header>
+<div id="tabs" role="tablist" aria-label="開いているスケジュール"></div>
 <div id="gantt" tabindex="0" aria-label="ガントチャート"></div>
 <div id="toast" role="alert"></div>
 <input id="fileInput" type="file" accept=".json,application/json" hidden>
@@ -194,7 +206,7 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 <dialog id="askDlg" aria-labelledby="askTitle">
   <h2 id="askTitle"></h2>
   <p class="msg" id="askMsg"></p>
-  <div class="foot"><span class="grow"></span><button class="btn" id="askNo" type="button">キャンセル</button><button class="btn" id="askYes" type="button"></button></div>
+  <div class="foot"><span class="grow"></span><button class="btn" id="askNo" type="button">キャンセル</button><button class="btn danger" id="askAlt" type="button" hidden></button><button class="btn" id="askYes" type="button"></button></div>
 </dialog>
 
 <script>
@@ -212,7 +224,7 @@ const store = {
 
 /* state.tasks の順序がそのまま表示順になる。マイルストーンは type と date を持ち、start / end は日付の月。
    同じグループで row が同じ項目は1つの行に並ぶ */
-const state = { tasks: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, lastGroup: '', renaming: null, drag: null, barDrag: null };
+const state = { docs: [], doc: null, label: '', tasks: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, lastGroup: '', renaming: null, drag: null, barDrag: null };
 const rowOf = new WeakMap(); // 行要素 → { task } または { group }
 const itemOf = new WeakMap(); // バーや◆の要素 → 項目
 
@@ -470,12 +482,14 @@ function showStatus(kind, text) {
   $('#statusText').append(b);
 }
 function refreshStatus() {
-  const name = state.fileName || '新規スケジュール';
+  renderTabs();
+  const name = docName(state);
   document.title = `${state.dirty ? '● ' : ''}${name} - ${APP}`;
   if (state.dirty) showStatus('dirty', `${name}: 未保存の変更があります`);
   else showStatus('', name);
 }
 function markSaved(text) {
+  renderTabs();
   const t = new Date().toLocaleTimeString('ja-JP');
   showStatus('saved', `${text}(${t})`);
   const s = $('#status');
@@ -491,16 +505,83 @@ function toast(msg) {
 function changed() { normalize(); state.dirty = true; render(); refreshStatus(); }
 
 /* ---------- 確認ダイアログ ---------- */
-function ask(title, message, yes, danger) {
+/** 確認ダイアログ。alt を渡すと3つ目のボタンを出し、押されたら 'alt' を返す */
+function ask(title, message, yes, danger, alt) {
   return new Promise((res) => {
-    const d = $('#askDlg'), y = $('#askYes'), n = $('#askNo');
+    const d = $('#askDlg'), y = $('#askYes'), n = $('#askNo'), a = $('#askAlt');
     $('#askTitle').textContent = title; $('#askMsg').textContent = message;
     y.textContent = yes; y.className = 'btn ' + (danger ? 'danger' : 'primary');
-    const done = (v) => { y.onclick = n.onclick = d.oncancel = null; d.close(); res(v); };
-    y.onclick = () => done(true); n.onclick = () => done(false);
+    a.hidden = !alt; a.textContent = alt || '';
+    const done = (v) => { y.onclick = n.onclick = a.onclick = d.oncancel = null; d.close(); res(v); };
+    y.onclick = () => done(true); n.onclick = () => done(false); a.onclick = () => done('alt');
     d.oncancel = (e) => { e.preventDefault(); done(false); };
     d.showModal(); n.focus();
   });
+}
+
+/* ---------- タブ ---------- */
+/* 表示中のスケジュールは state の各項目に展開し、切り替えるときに文書へ書き戻す */
+const DOC_KEYS = ['tasks', 'handle', 'fileName', 'mtime', 'dirty', 'lastGroup', 'label'];
+let untitledSeq = 0;
+function newDoc(untitled) {
+  return { tasks: [], handle: null, fileName: null, mtime: null, dirty: false, lastGroup: '', label: untitled ? `新規スケジュール ${++untitledSeq}` : '', top: 0, left: 0 };
+}
+const docName = (d) => d.fileName || d.label || '新規スケジュール';
+const field = (d, k) => (d === state.doc ? state[k] : d[k]);
+const isPristine = () => !state.tasks.length && !state.dirty && !state.fileName && !state.handle;
+function stash() {
+  const d = state.doc; if (!d) return;
+  for (const k of DOC_KEYS) d[k] = state[k];
+  d.top = $('#gantt').scrollTop; d.left = $('#gantt').scrollLeft;
+}
+function switchTo(d) {
+  if (d === state.doc) { render(); refreshStatus(); return; } // 表示中のタブは state が最新なので、古い控えで上書きしない
+  stash();
+  state.doc = d;
+  for (const k of DOC_KEYS) state[k] = d[k];
+  state.editing = null;
+  render();
+  $('#gantt').scrollTop = d.top; $('#gantt').scrollLeft = d.left;
+  refreshStatus();
+}
+function newTab() {
+  const d = newDoc(true);
+  state.docs.splice(state.docs.indexOf(state.doc) + 1, 0, d);
+  switchTo(d);
+}
+async function closeTab(d) {
+  if (field(d, 'dirty')) {
+    if (d !== state.doc) switchTo(d);
+    const r = await ask('未保存の変更', `「${docName(state)}」には未保存の変更があります。保存しますか?`, '保存する', false, '保存しない');
+    if (!r) return;
+    if (r === true) { await save(); if (state.dirty) return; } // 保存をキャンセルしたら閉じない
+  }
+  const i = state.docs.indexOf(d);
+  state.docs.splice(i, 1);
+  if (state.doc === d) state.doc = null;
+  if (!state.docs.length) state.docs.push(newDoc(true)); // 最後のタブを閉じたら空の新規タブにする
+  if (state.doc) renderTabs(); // 裏のタブを閉じたときは表示中のまま
+  else switchTo(state.docs[Math.min(i, state.docs.length - 1)]);
+}
+function renderTabs() {
+  const box = $('#tabs'); if (!box || !state.docs) return;
+  const frag = document.createDocumentFragment();
+  for (const d of state.docs) {
+    const name = docName(d === state.doc ? state : d);
+    const t = el('div', 'tab' + (d === state.doc ? ' on' : '') + (field(d, 'dirty') ? ' dirty' : ''));
+    t.setAttribute('role', 'tab'); t.tabIndex = 0; t.title = name; t.setAttribute('aria-selected', String(d === state.doc));
+    const x = el('button', 'x', '×'); x.type = 'button'; x.title = '閉じる(Alt+W)'; x.setAttribute('aria-label', `${name} を閉じる`);
+    t.append(el('span', 'tn', name), el('i', 'dot'), x);
+    t.onclick = (e) => { if (e.target === x) guard(closeTab)(d); else if (d !== state.doc) switchTo(d); };
+    t.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); guard(closeTab)(d); } };
+    t.onkeydown = (e) => { if (e.key === 'Enter' && d !== state.doc) switchTo(d); };
+    frag.append(t);
+  }
+  const plus = el('button', '', '+'); plus.id = 'newTab'; plus.type = 'button'; plus.title = '新しいタブ(Alt+N)'; plus.setAttribute('aria-label', '新しいタブ');
+  plus.onclick = newTab;
+  frag.append(plus);
+  box.replaceChildren(frag);
+  const on = $('.tab.on', box); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 /* ---------- タスク編集 ---------- */
@@ -877,20 +958,27 @@ function parseFile(text) {
 }
 const PICKER = { types: [{ description: 'スケジュール (JSON)', accept: { 'application/json': ['.json'] } }] };
 const suggestedName = () => state.fileName || 'macro-schedule.json';
+/** 新しいタブで開く。表示中のタブが手付かずの新規なら、そのタブを使う */
 function loaded(text, name, handle, mtime) {
-  state.tasks = parseFile(text);
+  const tasks = parseFile(text); // 不正なファイルなら、ここで止まってタブは増えない
+  if (!isPristine()) {
+    const d = newDoc(false);
+    state.docs.splice(state.docs.indexOf(state.doc) + 1, 0, d);
+    stash(); state.doc = d;
+  }
+  Object.assign(state, { tasks, fileName: name, handle, mtime, dirty: false, lastGroup: '', label: '' });
   normalize();
-  Object.assign(state, { fileName: name, handle, mtime, dirty: false, lastGroup: '' });
+  render();
   $('#gantt').scrollTo(0, 0);
-  render(); refreshStatus();
-}
-async function confirmDiscard() {
-  return !state.dirty || ask('未保存の変更', '保存していない変更は失われます。別のファイルを開きますか?', '破棄して開く', true);
+  refreshStatus();
 }
 async function openFile() {
-  if (!await confirmDiscard()) return;
   if (!hasFsApi) { $('#fileInput').value = ''; $('#fileInput').click(); return; }
   const [h] = await window.showOpenFilePicker(PICKER);
+  for (const d of state.docs) { // 開いているファイルなら、そのタブに切り替える
+    const open = field(d, 'handle');
+    if (open && await open.isSameEntry(h)) { switchTo(d); return; }
+  }
   const f = await h.getFile();
   loaded(await f.text(), f.name, h, f.lastModified);
 }
@@ -1325,16 +1413,23 @@ $('#taskDlg').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && e.target.tagName === 'INPUT' && !['checkbox', 'radio'].includes(e.target.type)) { e.preventDefault(); submitTask(); }
 });
 document.addEventListener('keydown', (e) => {
-  if (!(e.ctrlKey || e.metaKey) || document.querySelector('dialog[open]')) return;
+  if (document.querySelector('dialog[open]') || e.isComposing) return;
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.code === 'KeyN' || e.code === 'KeyW')) {
+    e.preventDefault();
+    if (e.code === 'KeyN') newTab(); else guard(closeTab)(state.doc);
+    return;
+  }
+  if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
   if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); }
 });
-window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', (e) => { if (state.docs.some((d) => field(d, 'dirty'))) { e.preventDefault(); e.returnValue = ''; } });
 setTheme(store.get('theme') === 'light' ? 'light' : 'dark');
 buildSwatches();
 initDrag();
 initBarDrag();
-render(); refreshStatus();
+state.docs.push(newDoc(true));
+switchTo(state.docs[0]);
 })();
 </script>
 </body>
