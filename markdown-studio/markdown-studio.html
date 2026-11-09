@@ -87,9 +87,9 @@ body.no-editor #editorPane{display:none}
 #stack{flex:1;min-width:0;position:relative}
 .ed,#mirror{
   font:14px/22px "BIZ UDGothic","MS Gothic","Osaka-Mono","Noto Sans Mono CJK JP",ui-monospace,Menlo,Consolas,monospace;
-  padding:12px 16px;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;
+  padding:12px 16px;white-space:pre;overflow-wrap:normal;word-break:normal;tab-size:4;
 }
-.ed{position:absolute;inset:0;width:100%;height:100%;border:0;margin:0;resize:none;outline:0;overflow-y:scroll;background:var(--panel);color:var(--text)}
+.ed{position:absolute;inset:0;width:100%;height:100%;border:0;margin:0;resize:none;outline:0;overflow-y:scroll;overflow-x:auto;background:var(--panel);color:var(--text)}
 .ed::selection{background:var(--accent-soft)}
 [data-theme="dark"] .ed::selection{background:#35605b}
 #mirror{position:absolute;left:-99999px;top:0;visibility:hidden;padding:0}
@@ -115,6 +115,7 @@ body.read #preview{padding:36px max(36px,calc(50% - 400px))}
 .md li>p{margin:.2em 0}
 .md li:has(>input[type=checkbox]),.md li:has(>p>input[type=checkbox]){list-style:none;margin-left:-1.4em}
 .md input[type=checkbox]{margin:0 .45em 0 0;accent-color:var(--accent);vertical-align:-1px}
+.md input[data-task]:not(:disabled){cursor:pointer}
 .md blockquote{margin:0 0 1em;padding:.1em 1em;border-left:4px solid var(--quote);color:var(--muted)}
 .md blockquote>:last-child{margin-bottom:0}
 .md a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
@@ -211,6 +212,7 @@ kbd{font:12px ui-monospace,Menlo,Consolas,monospace;background:var(--panel2);bor
   <button class="tb" data-cmd="link"></button>
   <button class="tb" data-cmd="image"></button>
   <button class="tb" data-cmd="table"></button>
+  <button class="tb" data-cmd="task"></button>
   <i class="sep"></i>
   <button class="tb" data-cmd="formatTables"></button>
   <button class="tb" data-cmd="organizeLinks"></button>
@@ -280,6 +282,7 @@ const ICONS = {
   table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>',
   align: '<path d="M4 6h16M4 12h16M4 18h16M9 3v18M15 3v18"/>',
   links: '<path d="M4 6h10M4 11h7M4 16h6"/><path d="M15 15a3 3 0 0 0 4.300 0l1-1a3 3 0 0 0-4.300-4.300l-.5.5"/><path d="M18 13a3 3 0 0 0-4.300 0l-1 1a3 3 0 0 0 4.300 4.300l.5-.5"/>',
+  check: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.500l2.800 2.800L16 9.500"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.800-3.800"/>',
   book: '<path d="M12 6c-2-1.500-5-2-9-2v15c4 0 7 .5 9 2 2-1.500 5-2 9-2V4c-4 0-7 .5-9 2zM12 6v15"/>',
   moon: '<path d="M20 14.500A8.500 8.500 0 0 1 9.500 4 8.500 8.500 0 1 0 20 14.500z"/>',
@@ -852,7 +855,7 @@ function initResizer() {
 /* ---------- タブ ---------- */
 function newEditor(tab, text) {
   const ta = el('textarea', 'ed');
-  ta.spellcheck = false; ta.value = text; ta.hidden = true; ta.setAttribute('aria-label', 'エディタ');
+  ta.spellcheck = false; ta.wrap = 'off'; ta.value = text; ta.hidden = true; ta.setAttribute('aria-label', 'エディタ');
   ta.addEventListener('input', () => onInput(tab));
   ta.addEventListener('scroll', syncGutterScroll);
   ta.addEventListener('keydown', onEditorKey);
@@ -1004,7 +1007,17 @@ function jumpTo(t, line, column = 0, length = 0) {
   const p = offsetOfLine(t.ta.value, line) + column;
   t.ta.focus(); t.ta.setSelectionRange(p, p + length);
   const m = $('#mirror').children[line];
-  if (m) t.ta.scrollTop = Math.max(0, m.offsetTop - t.ta.clientHeight / 3);
+  if (m) {
+    t.ta.scrollTop = Math.max(0, m.offsetTop - t.ta.clientHeight / 3);
+    // 折り返さないので、行の途中の該当箇所が見えるよう横にも動かす
+    const range = document.createRange(), node = m.firstChild;
+    t.ta.scrollLeft = 0;
+    if (node && column) {
+      range.setStart(node, Math.min(column, node.length)); range.collapse(true);
+      const x = range.getBoundingClientRect().left - m.getBoundingClientRect().left;
+      if (x > t.ta.clientWidth * 0.7) t.ta.scrollLeft = x - t.ta.clientWidth / 3;
+    }
+  }
   updateCurLine();
 }
 
@@ -1028,6 +1041,7 @@ function replaceAllText(ta, next) {
   ta.scrollTop = top;
   return true;
 }
+const INDENT = '    ';
 const lineStart = (s, p) => s.lastIndexOf('\n', p - 1) + 1;
 const lineEnd = (s, p) => { const k = s.indexOf('\n', p); return k < 0 ? s.length : k; };
 function indentSelection(ta, shift) {
@@ -1035,7 +1049,7 @@ function indentSelection(ta, shift) {
   if (b > a && s[b - 1] === '\n') b--;
   const ls = lineStart(s, a), le = lineEnd(s, b), block = s.slice(ls, le);
   const multi = block.includes('\n');
-  const next = block.split('\n').map((l) => (shift ? l.replace(/^( {1,2}|\t)/, '') : l ? '  ' + l : l)).join('\n');
+  const next = block.split('\n').map((l) => (shift ? l.replace(/^( {1,4}|\t)/, '') : l ? INDENT + l : l)).join('\n');
   if (next === block) return;
   if (multi || a !== ta.selectionEnd) replaceRange(ta, ls, le, next, ls, ls + next.length);
   else { const c = Math.max(ls, a + next.length - block.length); replaceRange(ta, ls, le, next, c); }
@@ -1083,9 +1097,14 @@ function handleEnter(ta) {
   if (ctx) {
     const { idx, delim, start } = ctx;
     if (idx > delim && cellTexts(line).every((c) => !c)) { replaceRange(ta, ls, le, '', ls); return true; }
-    const n = cellRanges(ctx.lines[start]).length, row = emptyRow(n);
-    const at = idx <= delim ? lineEnd(s, offsetOfLine(s, delim)) : le;
-    replaceRange(ta, at, at, '\n' + row, at + 3);
+    // 行を足すと同時に表全体を整形する。1回の置換にして Undo 1回で戻せるようにする
+    const { end } = ctx, n = cellRanges(ctx.lines[start]).length, insertAt = (idx <= delim ? delim : idx) - start + 1;
+    const rows = ctx.lines.slice(start, end + 1);
+    rows.splice(insertAt, 0, emptyRow(n));
+    const indent = rows[0].match(/^\s*/)[0], formatted = formatTableBlock(rows, indent);
+    const from = offsetOfLine(s, start), to = lineEnd(s, offsetOfLine(s, end));
+    const caret = from + formatted.slice(0, insertAt).reduce((a, l) => a + l.length + 1, 0) + indent.length + 2;
+    replaceRange(ta, from, to, formatted.join('\n'), caret);
     return true;
   }
   const lines = s.split('\n'), idx = lineIndexAt(s, pos);
@@ -1109,7 +1128,7 @@ function handleTab(ta, shift) {
   if (shift || multi || a !== b) { indentSelection(ta, shift); return; }
   const line = s.slice(lineStart(s, a), lineEnd(s, a));
   if (/^\s*([-*+]|\d+[.)])\s/.test(line)) indentSelection(ta, false);
-  else replaceRange(ta, a, a, '  ');
+  else replaceRange(ta, a, a, INDENT);
 }
 function onEditorKey(e) {
   if (e.isComposing || e.keyCode === 229) return;
@@ -1146,9 +1165,11 @@ async function saveImage(blob, tab) {
 
 /* ---------- プレビュー ---------- */
 const slugOf = (s) => s.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
+let taskSeq = 0;
 marked.use({
   gfm: true,
   renderer: {
+    checkbox({ checked }) { return `<input type="checkbox" data-task="${taskSeq++}"${checked ? ' checked' : ''}> `; },
     code(token) {
       const lang = (token.lang || '').trim().split(/\s+/)[0].toLowerCase();
       if (lang === 'mermaid') return `<div class="mermaid-block" data-code="${encodeURIComponent(token.text)}"></div>\n`; // --> を含む属性は DOMPurify に消されるので符号化する
@@ -1186,10 +1207,52 @@ const OPENABLE_LINK = /^(https?:|mailto:)/i;
 function openExternal(href) { window.open(href, '_blank', 'noopener,noreferrer'); }
 
 /** Markdown を、外部への経路を取り除いた DOM に変換する */
+/* チェックボックスの切り替え。プレビューの n 番目のチェックボックスは、本文の n 番目のタスク行に対応する */
+const TASK_RE = /^((?:\s*>)*\s*)([-*+]|\d+[.)])(\s+)\[([ xX])\]/;
+const LIST_RE = /^((?:\s*>)*\s*)([-*+]|\d+[.)])(\s+)/;
+/** タスク行の [ ] の中の文字の位置。コードブロックの中は数えない */
+function taskPositions(text) {
+  const lines = text.split('\n'), fence = fenceMask(lines), out = [];
+  let off = 0;
+  lines.forEach((l, i) => {
+    const m = !fence[i] && l.match(TASK_RE);
+    if (m) out.push(off + m[0].length - 2);
+    off += l.length + 1;
+  });
+  return out;
+}
+/** 対応関係が崩れていたら、別の行を書き換えないよう切り替えを無効にする */
+function bindTasks(root, text) {
+  const boxes = $$('input[type=checkbox]', root), ours = boxes.filter((b) => b.dataset.task != null);
+  const ok = ours.length === taskPositions(text).length && ours.every((b, i) => b.dataset.task === String(i)) && ours.length === boxes.length;
+  for (const b of boxes) {
+    if (ok) { b.removeAttribute('disabled'); b.title = 'クリックでチェックを切り替え'; } else b.setAttribute('disabled', '');
+  }
+}
+function toggleTask(index) {
+  const t = state.active; if (!t || !t.ta) return;
+  const pos = taskPositions(t.ta.value)[index];
+  if (pos == null) return;
+  const next = t.ta.value[pos] === ' ' ? 'x' : ' ';
+  if (t.ta.offsetParent) replaceRange(t.ta, pos, pos + 1, next, t.ta.selectionStart, t.ta.selectionEnd);
+  else { t.ta.setRangeText(next, pos, pos + 1, 'preserve'); t.ta.dispatchEvent(new Event('input', { bubbles: true })); } // 閲覧モードではエディタが非表示
+  renderPreview();
+}
+function toggleTaskLine(l) {
+  if (!l.trim()) return l;
+  const t = l.match(TASK_RE);
+  if (t) { const i = t[0].length - 2; return l.slice(0, i) + (t[4] === ' ' ? 'x' : ' ') + l.slice(i + 1); }
+  const li = l.match(LIST_RE);
+  if (li) return li[0] + '[ ] ' + l.slice(li[0].length);
+  const lead = l.match(/^((?:\s*>)*\s*)/)[0];
+  return lead + '- [ ] ' + l.slice(lead.length);
+}
 function buildDoc(text, tab) {
   const tpl = document.createElement('template');
+  taskSeq = 0;
   tpl.innerHTML = DOMPurify.sanitize(marked.parse(text), PURIFY);
   const root = tpl.content, base = dirOf(tab.path), seen = new Map();
+  bindTasks(root, text);
   for (const h of $$('h1,h2,h3,h4,h5,h6', root)) {
     const s = slugOf(h.textContent) || 'section', n = seen.get(s) || 0;
     seen.set(s, n + 1); h.id = n ? `${s}-${n}` : s;
@@ -1321,6 +1384,8 @@ function initPreview() {
     if (a && e.button === 1) { e.preventDefault(); openExternal(a.dataset.href); }
   });
   $('#preview').addEventListener('click', guard(async (e) => {
+    const box = e.target.closest('input[data-task]');
+    if (box) { e.preventDefault(); toggleTask(+box.dataset.task); return; }
     const a = e.target.closest('a'); if (!a) return;
     e.preventDefault();
     if (a.dataset.href) { openExternal(a.dataset.href); return; }
@@ -1875,6 +1940,18 @@ const commands = {
       const url = await ask({ title: '画像挿入', label: '画像の URL またはファイルからの相対パス', placeholder: 'images/sample.png' });
       if (!url || !url.trim()) { ta.focus(); return; }
       replaceRange(ta, a, b, `![${alt}](${url.trim().replace(/ /g, '%20')})`);
+    }),
+  },
+  task: {
+    label: 'チェックボックス', icon: 'check', key: { alt: 1, code: 'KeyX' },
+    run: onEditor((ta) => {
+      const s = ta.value, a = ta.selectionStart; let b = ta.selectionEnd;
+      if (b > a && s[b - 1] === '\n') b--;
+      const ls = lineStart(s, a), le = lineEnd(s, b), block = s.slice(ls, le);
+      const next = block.split('\n').map(toggleTaskLine).join('\n');
+      if (next === block) return;
+      if (block.includes('\n')) replaceRange(ta, ls, le, next, ls, ls + next.length);
+      else { const c = Math.max(ls, a + next.length - block.length); replaceRange(ta, ls, le, next, c); }
     }),
   },
   table: {
