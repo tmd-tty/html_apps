@@ -80,6 +80,8 @@ body.no-sidebar #sidebar,body.no-sidebar #resizer{display:none}
 #previewPane{flex:1 1 50%;min-width:0;display:flex;background:var(--panel)}
 body.read #editorPane{display:none}
 body.no-editor #editorPane{display:none}
+body.editonly:not(.no-editor) #previewPane{display:none}
+body.editonly #editorPane{border-right:0}
 #gutter{width:52px;flex:none;overflow:hidden;background:var(--panel2);color:var(--muted);text-align:right;user-select:none;font:13px/22px ui-monospace,Menlo,Consolas,monospace}
 #gutterIn{padding:12px 0;will-change:transform}
 #gutterIn div{padding-right:10px;overflow:hidden}
@@ -94,7 +96,7 @@ body.no-editor #editorPane{display:none}
 [data-theme="dark"] .ed::selection{background:#35605b}
 #mirror{position:absolute;left:-99999px;top:0;visibility:hidden;padding:0}
 #preview{flex:1;overflow:auto;padding:28px 36px;min-width:0}
-body.read #preview{padding:36px max(36px,calc(50% - 400px))}
+body.read #preview{padding:32px 44px}
 .placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);text-align:center;padding:24px}
 .placeholder h1{margin:0;font-size:22px;color:var(--text)}
 .placeholder p{margin:0;max-width:440px}
@@ -109,11 +111,15 @@ body.read #preview{padding:36px max(36px,calc(50% - 400px))}
 .md h2{font-size:1.45em;padding-bottom:.2em;border-bottom:1px solid var(--line)}
 .md h3{font-size:1.2em}.md h4{font-size:1.05em}.md h5{font-size:1em}.md h6{font-size:.95em;color:var(--muted)}
 .md p{margin:0 0 1em}
-.md ul,.md ol{margin:0 0 1em;padding-left:1.7em}
+.md ul,.md ol{margin:0 0 1em;padding-left:2.4em}
 .md li{margin:.15em 0}
-.md li>ul,.md li>ol{margin-bottom:0}
+.md li>ul,.md li>ol{margin:.1em 0 0 .15em;padding-left:2.2em;border-left:1px solid var(--line)} /* 入れ子は線で階層を示す */
+.md ul{list-style-type:disc}
+.md ul ul{list-style-type:circle}
+.md ul ul ul{list-style-type:square}
 .md li>p{margin:.2em 0}
 .md li:has(>input[type=checkbox]),.md li:has(>p>input[type=checkbox]){list-style:none;margin-left:-1.4em}
+.md li:has(>input[type=checkbox])>:is(ul,ol),.md li:has(>p>input[type=checkbox])>:is(ul,ol){padding-left:3.6em} /* チェックボックスの項目は左へ詰めているので、その下の階層はぶんを戻して他と同じ深さにする */
 .md input[type=checkbox]{margin:0 .45em 0 0;accent-color:var(--accent);vertical-align:-1px}
 .md input[data-task]:not(:disabled){cursor:pointer}
 .md blockquote{margin:0 0 1em;padding:.1em 1em;border-left:4px solid var(--quote);color:var(--muted)}
@@ -218,6 +224,7 @@ kbd{font:12px ui-monospace,Menlo,Consolas,monospace;background:var(--panel2);bor
   <button class="tb" data-cmd="organizeLinks"></button>
   <button class="tb" data-cmd="search"></button>
   <span class="grow"></span>
+  <button class="tb" data-cmd="editMode"></button>
   <button class="tb" data-cmd="readMode"></button>
   <button class="tb" data-cmd="theme"></button>
   <button class="tb" data-cmd="pdf"></button>
@@ -284,6 +291,7 @@ const ICONS = {
   links: '<path d="M4 6h10M4 11h7M4 16h6"/><path d="M15 15a3 3 0 0 0 4.300 0l1-1a3 3 0 0 0-4.300-4.300l-.5.5"/><path d="M18 13a3 3 0 0 0-4.300 0l-1 1a3 3 0 0 0 4.300 4.300l.5-.5"/>',
   check: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.500l2.800 2.800L16 9.500"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.800-3.800"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16zM13.500 6.500l4 4"/>',
   book: '<path d="M12 6c-2-1.500-5-2-9-2v15c4 0 7 .5 9 2 2-1.500 5-2 9-2V4c-4 0-7 .5-9 2zM12 6v15"/>',
   moon: '<path d="M20 14.500A8.500 8.500 0 0 1 9.500 4 8.500 8.500 0 1 0 20 14.500z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.900 4.900l1.400 1.400M17.700 17.700l1.400 1.400M2 12h2M20 12h2M4.900 19.100l1.400-1.400M17.700 6.300l1.400-1.400"/>',
@@ -1329,7 +1337,7 @@ function fillMermaid(block, res) {
   for (const i of $$('image', block)) i.remove();
 }
 
-const renderLater = debounce(() => renderPreview(), 120);
+const renderLater = debounce(() => { if (state.mode !== 'edit') renderPreview(); }, 120); // エディタのみの間は描画しない
 async function renderPreview() {
   const pv = $('#preview'), t = state.active, token = ++state.renderToken;
   if (!t) {
@@ -1898,10 +1906,14 @@ function setTheme(th) {
   paintCommands();
   renderPreview();
 }
-function setRead(on) {
-  state.read = on; document.body.classList.toggle('read', on);
+/** 表示モード。split は分割、read はプレビューのみ、edit はエディタのみ */
+function setMode(mode) {
+  state.mode = mode; state.read = mode === 'read';
+  document.body.classList.toggle('read', mode === 'read');
+  document.body.classList.toggle('editonly', mode === 'edit');
   paintCommands();
-  if (!on) { scheduleGutter(); if (state.active && state.active.ta) state.active.ta.focus(); }
+  if (mode !== 'read') { scheduleGutter(); if (state.active && state.active.ta) state.active.ta.focus(); }
+  if (mode !== 'edit') renderPreview(); // エディタのみの間に変えた内容をプレビューへ反映する
 }
 const commands = {
   sidebar: { label: 'サイドバーの表示/非表示', icon: 'menu', key: { mod: 1, code: 'Backslash' }, run() { document.body.classList.toggle('no-sidebar'); scheduleGutter(); paintCommands(); } },
@@ -1987,7 +1999,8 @@ const commands = {
     }),
   },
   search: { label: '全文検索', icon: 'search', key: { mod: 1, shift: 1, code: 'KeyF' }, run: openSearch },
-  readMode: { label: '閲覧モード切り替え', icon: 'book', key: { mod: 1, code: 'KeyE' }, active: () => state.read, run() { setRead(!state.read); } },
+  editMode: { label: '編集のみ表示の切り替え', icon: 'pencil', key: { mod: 1, shift: 1, code: 'KeyE' }, active: () => state.mode === 'edit', run() { setMode(state.mode === 'edit' ? 'split' : 'edit'); } },
+  readMode: { label: '閲覧モード切り替え', icon: 'book', key: { mod: 1, code: 'KeyE' }, active: () => state.mode === 'read', run() { setMode(state.mode === 'read' ? 'split' : 'read'); } },
   theme: { label: 'テーマ切り替え', icon: 'moon', key: { alt: 1, code: 'KeyD' }, run() { setTheme(state.theme === 'dark' ? 'light' : 'dark'); } },
   pdf: { label: 'PDF出力', icon: 'pdf', text: 'PDF', key: { alt: 1, code: 'KeyP' }, run: guard(exportPdf) },
   word: { label: 'Word出力', icon: 'pdf', text: 'Word', key: { alt: 1, code: 'KeyO' }, run: guard(exportWord) },
