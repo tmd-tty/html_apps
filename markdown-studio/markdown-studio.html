@@ -1373,13 +1373,32 @@ async function loadLocalImages(box) {
 /* Mermaid は同時実行できないので直列に処理する */
 const mmCache = new Map();
 let mmChain = Promise.resolve(), mmSeq = 0, mmTheme = null;
+const MERMAID_FONT = 'system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif';
+/* ライトモードの図は Mermaid 標準の配色をやめ、アプリのライト配色に合わせる。PDF と Word の図もこの配色になる */
+const MERMAID_LIGHT = {
+  fontFamily: MERMAID_FONT, fontSize: '14px', background: '#ffffff', textColor: '#1f2430', titleColor: '#1f2430', lineColor: '#7a8291',
+  primaryColor: '#e6f2f0', primaryBorderColor: '#3d7f79', primaryTextColor: '#1f2430', mainBkg: '#e6f2f0', nodeBorder: '#3d7f79',
+  secondaryColor: '#fbeedd', secondaryBorderColor: '#c98a3a', secondaryTextColor: '#1f2430',
+  tertiaryColor: '#f4f5f7', tertiaryBorderColor: '#cfd4dd', tertiaryTextColor: '#1f2430',
+  clusterBkg: '#f7f8fa', clusterBorder: '#d5d9e0', edgeLabelBackground: '#ffffff',
+  actorBkg: '#e6f2f0', actorBorder: '#3d7f79', actorTextColor: '#1f2430', actorLineColor: '#b4bcc8', signalColor: '#4b5565', signalTextColor: '#1f2430',
+  noteBkgColor: '#fff7d6', noteBorderColor: '#e3c75b', noteTextColor: '#3b3420', activationBkgColor: '#dcefed', activationBorderColor: '#3d7f79',
+  taskBkgColor: '#3d7f79', taskBorderColor: '#2f6f6a', taskTextColor: '#ffffff', taskTextLightColor: '#ffffff', taskTextOutsideColor: '#1f2430', taskTextDarkColor: '#1f2430',
+  activeTaskBkgColor: '#9fd0c9', activeTaskBorderColor: '#3d7f79', doneTaskBkgColor: '#cfd4dd', doneTaskBorderColor: '#9aa3b2',
+  critBkgColor: '#c4513a', critBorderColor: '#a43f2b', sectionBkgColor: '#f4f7f6', sectionBkgColor2: '#f4f7f6', altSectionBkgColor: '#ffffff', gridColor: '#e3e6eb', todayLineColor: '#c4513a',
+  pie1: '#3d7f79', pie2: '#b8741f', pie3: '#3f73c0', pie4: '#b0506f', pie5: '#5a8a3e', pie6: '#6c5fb5', pie7: '#b5562f', pie8: '#2f7f92', pieOpacity: '0.95',
+  pieStrokeColor: '#ffffff', pieStrokeWidth: '2px', pieOuterStrokeColor: '#ffffff', pieOuterStrokeWidth: '2px', pieSectionTextColor: '#ffffff', pieTitleTextColor: '#1f2430', pieLegendTextColor: '#1f2430',
+};
+/* 角を丸め、線を少し細くして軽く見せる */
+const MERMAID_LIGHT_CSS = `.node rect,.node .label-container{rx:6px;ry:6px}.cluster rect{rx:8px;ry:8px}rect.actor{rx:6px;ry:6px}rect.note{rx:4px;ry:4px}
+.statediagram-state rect,.stateGroup rect{rx:6px;ry:6px}.classGroup rect,g.classGroup rect{rx:4px;ry:4px}.flowchart-link,.messageLine0,.messageLine1{stroke-width:1.4px}`;
 function mermaidInit(theme) {
   if (mmTheme === theme) return;
   mmTheme = theme;
-  mermaid.initialize({
-    startOnLoad: false, securityLevel: 'strict', theme: theme === 'dark' ? 'dark' : 'default',
-    fontFamily: 'system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif',
-  });
+  const common = { startOnLoad: false, securityLevel: 'strict', fontFamily: MERMAID_FONT };
+  mermaid.initialize(theme === 'dark'
+    ? { ...common, theme: 'dark' }
+    : { ...common, theme: 'base', themeVariables: MERMAID_LIGHT, themeCSS: MERMAID_LIGHT_CSS });
 }
 function renderMermaid(code, theme) {
   const key = theme + '\0' + code;
