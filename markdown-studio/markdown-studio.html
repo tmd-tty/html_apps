@@ -131,6 +131,13 @@ body.read #preview{padding:32px 44px}
 .md code{font-family:ui-monospace,Menlo,Consolas,"BIZ UDGothic",monospace;font-size:.88em;background:var(--code-bg);padding:.12em .35em;border-radius:4px}
 .md pre{margin:0 0 1em;padding:12px 14px;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;overflow:auto;line-height:1.55}
 .md pre code{background:none;padding:0;font-size:.86em;display:block;white-space:pre}
+.code-wrap{position:relative;margin:0 0 1em}
+.code-wrap>pre{margin:0}
+.copy-btn{position:absolute;top:6px;right:6px;height:24px;padding:0 9px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--muted);font-size:11px;cursor:pointer;opacity:0;transition:opacity .12s}
+.code-wrap:hover .copy-btn,.copy-btn:focus-visible,.copy-btn.done{opacity:1}
+.copy-btn:hover{color:var(--text);background:var(--hover)}
+.copy-btn.done{color:var(--accent);border-color:var(--accent)}
+@media (hover:none){.copy-btn{opacity:1}}
 .md table{border-collapse:collapse;margin:0 0 1em;max-width:100%;display:table}
 .md th,.md td{border:1px solid var(--line);padding:6px 11px;text-align:left}
 .md th[align=center],.md td[align=center]{text-align:center}
@@ -167,6 +174,9 @@ body.read #preview{padding:32px 44px}
 .modal label{color:var(--muted);font-size:12px}
 .modal input[type=text]{width:100%;height:34px;padding:0 10px;font:inherit;font-size:14px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;outline:0}
 .modal input[type=text]:focus{border-color:var(--accent)}
+.modal select{width:100%;height:34px;padding:0 8px;font:inherit;font-size:14px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.modal .hint{color:var(--muted);font-size:12px;margin:0}
+.modal .hint code{font-size:11px}
 .btn{height:32px;padding:0 14px;border:1px solid var(--line);border-radius:6px;background:var(--panel);cursor:pointer}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--panel);font-weight:700}
@@ -352,7 +362,8 @@ function openModal({ title, body, footer, wide, onClose }) {
 }
 const button = (label, cls, onClick) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = onClick; return b; };
 
-function ask({ title, label, value = '', placeholder = '', selectEnd }) {
+/** caret を渡すと、文字を選ばずにその位置へカーソルを置く */
+function ask({ title, label, value = '', placeholder = '', selectEnd, caret }) {
   return new Promise((res) => {
     const inp = el('input'); inp.type = 'text'; inp.value = value; inp.placeholder = placeholder; inp.setAttribute('aria-label', label || title);
     let close;
@@ -360,7 +371,8 @@ function ask({ title, label, value = '', placeholder = '', selectEnd }) {
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ok(); } });
     const body = label ? [el('label', '', label), inp] : [inp];
     close = openModal({ title, body, onClose: res, footer: [button('キャンセル', '', () => close(null)), button('OK', 'primary', ok)] });
-    inp.focus(); inp.setSelectionRange(0, selectEnd == null ? value.length : selectEnd);
+    inp.focus();
+    if (caret != null) inp.setSelectionRange(caret, caret); else inp.setSelectionRange(0, selectEnd == null ? value.length : selectEnd);
   });
 }
 function choose({ title, message, buttons }) {
@@ -693,24 +705,84 @@ async function renderSideEmpty() {
 const nodeFrom = (t) => { const r = t.closest && t.closest('.row'); return r ? findNode(r.dataset.path) : null; };
 const dirFor = (n) => (n.kind === 'directory' ? n : n.parent);
 
-async function createFile(dir, name, open = true) {
+async function createFile(dir, name, open = true, content = '') {
   if (await exists(dir.handle, name)) { toast(`「${name}」は既に存在します`, true); return; }
-  await dir.handle.getFileHandle(name, { create: true });
+  const handle = await dir.handle.getFileHandle(name, { create: true });
+  if (content) await writeFile(handle, content);
   state.expanded.add(dir.path);
   await reloadTree();
   if (open) await openFile(findNode(join(dir.path, name)));
 }
+/* ---------- テンプレート ---------- */
+/* 開いているフォルダ直下の templates フォルダにある .md を、新規作成のときに選べる */
+const TEMPLATE_DIR = 'templates';
+function templateFiles() {
+  const dir = state.root && state.root.children.find((c) => c.kind === 'directory' && c.name === TEMPLATE_DIR);
+  return dir ? [...walkFiles(dir)].filter((f) => MD_RE.test(f.name)) : null;
+}
+function formatDate(d, fmt) {
+  const z = (n) => String(n).padStart(2, '0');
+  const day = '日月火水木金土'[d.getDay()];
+  const parts = { YYYY: d.getFullYear(), MM: z(d.getMonth() + 1), DD: z(d.getDate()), HH: z(d.getHours()), mm: z(d.getMinutes()), ss: z(d.getSeconds()), dddd: `${day}曜日`, ddd: day };
+  return fmt.replace(/YYYY|MM|DD|HH|mm|ss|dddd|ddd/g, (t) => parts[t]); // dddd を ddd より先に照合する
+}
+const DATE_FORMATS = { date: 'YYYY-MM-DD', time: 'HH:mm', datetime: 'YYYY-MM-DD HH:mm', weekday: 'ddd' };
+/** {{filename}} などを置き換える。日付と時刻は {{date:YYYY/MM/DD}} のように書式を指定できる。知らない名前はそのまま残す */
+function fillTemplate(text, name, now = new Date()) {
+  return text.replace(/\{\{\s*(filename|title|date|time|datetime|weekday)(?:\s*:([^}]*))?\s*\}\}/g, (m, key, fmt) => {
+    if (key === 'filename') return name;
+    if (key === 'title') return name.replace(/\.[^.]+$/, '');
+    return formatDate(now, fmt && fmt.trim() ? fmt.trim() : DATE_FORMATS[key]);
+  });
+}
+/** 新規作成の名前の初期値。今日の日付の後ろに続きを書けるようにする */
+const datePrefix = () => `${formatDate(new Date(), 'YYYYMMDD')}_`;
+function askNewFile(dir) {
+  return new Promise((res) => {
+    const inp = el('input'); inp.type = 'text'; inp.value = `${datePrefix()}.md`; inp.setAttribute('aria-label', 'ファイル名');
+    const templates = templateFiles(), body = [el('label', '', `${dir.path || dir.name} に作成`), inp];
+    let sel = null, close;
+    if (templates && templates.length) {
+      sel = el('select'); sel.setAttribute('aria-label', 'テンプレート');
+      sel.append(new Option('(テンプレートなし)', ''));
+      for (const f of templates) sel.append(new Option(f.path.slice(TEMPLATE_DIR.length + 1), f.path));
+      if (templates.some((f) => f.path === state.lastTemplate)) sel.value = state.lastTemplate;
+      body.push(el('label', '', 'テンプレート'), sel);
+    } else {
+      const hint = el('p', 'hint');
+      hint.innerHTML = 'フォルダ直下の <code>templates</code> フォルダに .md を置くと、テンプレートを選べます。';
+      body.push(hint);
+    }
+    const ok = () => close({ name: inp.value, template: sel ? sel.value : '' });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ok(); } });
+    close = openModal({ title: '新規ファイル', body, onClose: res, footer: [button('キャンセル', '', () => close(null)), button('作成', 'primary', ok)] });
+    const caret = inp.value.lastIndexOf('.');
+    inp.focus(); inp.setSelectionRange(caret, caret); // 拡張子の前にカーソルを置く
+  });
+}
 const menuActions = {
   newFile: guard(async (n) => {
-    const d = dirFor(n);
-    let v = validName(await ask({ title: '新規ファイル', label: `${d.path || d.name} に作成`, value: '新規ファイル.md', selectEnd: 5 }));
+    const d = dirFor(n), r = await askNewFile(d);
+    if (!r) return;
+    let v = validName(r.name);
     if (!v) return;
     if (!v.includes('.')) v += '.md';
-    await createFile(d, v);
+    let content = '';
+    if (r.template) {
+      state.lastTemplate = r.template;
+      let file;
+      try { file = await fileAt(r.template); } catch {
+        toast(`テンプレート「${r.template}」が見つかりません。フォルダを再読み込みしてください`, true);
+        return;
+      }
+      content = fillTemplate(await file.text(), v);
+    }
+    await createFile(d, v, true, content);
   }),
   newDir: guard(async (n) => {
     const d = dirFor(n);
-    const v = validName(await ask({ title: '新規フォルダ', label: `${d.path || d.name} に作成`, value: '新規フォルダ' }));
+    const initial = datePrefix();
+    const v = validName(await ask({ title: '新規フォルダ', label: `${d.path || d.name} に作成`, value: initial, caret: initial.length }));
     if (!v) return;
     if (await exists(d.handle, v)) { toast(`「${v}」は既に存在します`, true); return; }
     await d.handle.getDirectoryHandle(v, { create: true });
@@ -1377,6 +1449,7 @@ async function renderPreview() {
       pending.push(b);
     }
   });
+  addCopyButtons(doc);
   pv.replaceChildren(doc);
   pv.scrollTop = top;
   await loadLocalImages(pv);
@@ -1386,12 +1459,35 @@ async function renderPreview() {
     fillMermaid(b, res);
   }
 }
+/** プレビューのコードブロックにコピーボタンを付ける。PDF 用の描画には付けない */
+function addCopyButtons(root) {
+  for (const pre of $$('pre', root)) {
+    const wrap = el('div', 'code-wrap'), btn = el('button', 'copy-btn', 'コピー');
+    btn.type = 'button'; btn.title = 'コードをクリップボードにコピー'; btn.setAttribute('aria-label', 'コードをコピー');
+    pre.replaceWith(wrap); wrap.append(pre, btn);
+  }
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return; } catch { /* 使えない環境では従来の方法でコピーする */ }
+  const t = el('textarea'); t.value = text; t.style.cssText = 'position:fixed;left:-9999px';
+  document.body.append(t); t.select();
+  const ok = document.execCommand('copy'); t.remove();
+  if (!ok) throw new Error('クリップボードにコピーできませんでした');
+}
+async function onCopy(btn) {
+  await copyText($('code', btn.parentElement).textContent);
+  btn.textContent = 'コピーしました'; btn.classList.add('done');
+  clearTimeout(btn.timer);
+  btn.timer = setTimeout(() => { btn.textContent = 'コピー'; btn.classList.remove('done'); }, 1500);
+}
 function initPreview() {
   $('#preview').addEventListener('auxclick', (e) => { // 中ボタンのクリック
     const a = e.target.closest('a[data-href]');
     if (a && e.button === 1) { e.preventDefault(); openExternal(a.dataset.href); }
   });
   $('#preview').addEventListener('click', guard(async (e) => {
+    const copy = e.target.closest('.copy-btn');
+    if (copy) { await onCopy(copy); return; }
     const box = e.target.closest('input[data-task]');
     if (box) { e.preventDefault(); toggleTask(+box.dataset.task); return; }
     const a = e.target.closest('a'); if (!a) return;
@@ -1941,8 +2037,15 @@ const commands = {
       const a = ta.selectionStart, b = ta.selectionEnd, text = ta.value.slice(a, b);
       const url = await ask({ title: 'リンク挿入', label: `URL${text ? `(対象: ${text.slice(0, 30)})` : ''}`, value: 'https://' });
       if (!url || !url.trim()) { ta.focus(); return; }
-      const label = text || 'リンク';
-      replaceRange(ta, a, b, `[${label}](${url.trim().replace(/ /g, '%20')})`, a + 1, a + 1 + label.length);
+      const label = text || 'リンク', link = `(${url.trim().replace(/ /g, '%20')})`;
+      // 挿入した文書にリンク整理をかける。目印の文字で挿入位置を追い、整理後の位置にカーソルを戻す
+      const MARK = '\uE000', s = ta.value;
+      const r = organizeLinks(`${s.slice(0, a)}[${MARK}${label}]${link}${s.slice(b)}`);
+      if (!r.count) { replaceRange(ta, a, b, `[${label}]${link}`, a + 1, a + 1 + label.length); return; }
+      const at = r.text.indexOf(MARK);
+      replaceAllText(ta, r.text.replace(MARK, ''));
+      ta.setSelectionRange(at, at + label.length);
+      toast(r.count > 1 ? `リンクを挿入し、${r.count} 件を参照リンクにしました` : 'リンクを挿入し、参照リンクにしました');
     }),
   },
   image: {
