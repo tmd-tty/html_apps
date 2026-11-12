@@ -107,6 +107,14 @@ body.read #preview{padding:32px 44px}
 .md{font-size:15px;line-height:1.75;color:var(--text);overflow-wrap:anywhere}
 .md>:first-child{margin-top:0}
 .md h1,.md h2,.md h3,.md h4,.md h5,.md h6{line-height:1.35;margin:1.6em 0 .6em;font-weight:700}
+/* 見出し単位の折りたたみ */
+.sec>:is(h1,h2,h3,h4,h5,h6){position:relative}
+.sec-toggle{position:absolute;left:-26px;top:50%;transform:translateY(-50%);width:22px;height:22px;padding:0;border:0;border-radius:4px;background:none;color:var(--muted);font-size:11px;line-height:22px;cursor:pointer;opacity:0;transition:opacity .12s}
+.sec>:is(h1,h2,h3,h4,h5,h6):hover .sec-toggle,.sec-toggle:focus-visible,.sec.collapsed>* .sec-toggle{opacity:1}
+.sec-toggle:hover{background:var(--hover);color:var(--text)}
+.sec.collapsed>.sec-body{display:none}
+.sec.collapsed>:is(h1,h2,h3,h4,h5,h6)::after{content:" …";color:var(--muted);font-weight:400}
+@media (hover:none){.sec-toggle{opacity:1}}
 .md h1{font-size:1.85em;padding-bottom:.25em;border-bottom:2px solid var(--line)}
 .md h2{font-size:1.45em;padding-bottom:.2em;border-bottom:1px solid var(--line)}
 .md h3{font-size:1.2em}.md h4{font-size:1.05em}.md h5{font-size:1em}.md h6{font-size:.95em;color:var(--muted)}
@@ -1341,7 +1349,7 @@ function buildDoc(text, tab) {
     const href = a.getAttribute('href');
     a.removeAttribute('href');
     if (!href) continue;
-    if (href.startsWith('#')) a.dataset.anchor = href.slice(1);
+    if (href.startsWith('#')) { let id = href.slice(1); try { id = decodeURIComponent(id); } catch { /* 不正なエスケープはそのまま */ } a.dataset.anchor = id; } // 日本語の見出しへのリンクはエンコードされて届く
     else if (OPENABLE_LINK.test(href)) { a.dataset.href = href; a.title = `新しいタブで開く: ${href}`; } else if (hasScheme(href)) { a.classList.add('ext'); a.title = `このリンクは開けません: ${href}`; } else {
       const p = normalizePath(base, href);
       if (p) { a.dataset.path = p; a.dataset.hash = (href.split('#')[1] || ''); }
@@ -1469,6 +1477,7 @@ async function renderPreview() {
     }
   });
   addCopyButtons(doc);
+  addSections(doc, t);
   pv.replaceChildren(doc);
   pv.scrollTop = top;
   await loadLocalImages(pv);
@@ -1476,6 +1485,54 @@ async function renderPreview() {
     const res = await renderMermaid(mermaidCode(b), state.theme);
     if (token !== state.renderToken) return;
     fillMermaid(b, res);
+  }
+}
+/** 直下の見出しごとに、次の同じ階層以上の見出しまでを section にまとめて折りたためるようにする。
+    折りたたみの状態はタブごとに見出しの id で覚え、再描画しても保つ。PDF 用の描画には付けない */
+function addSections(root, tab) {
+  tab.collapsed = tab.collapsed || new Set();
+  const out = document.createDocumentFragment(), stack = [{ level: 0, body: out }];
+  for (const n of [...root.childNodes]) {
+    const m = n.nodeType === 1 && n.tagName.match(/^H([1-6])$/);
+    if (!m) { stack[stack.length - 1].body.append(n); continue; }
+    const level = +m[1];
+    while (stack[stack.length - 1].level >= level) stack.pop();
+    const sec = el('section', 'sec'), body = el('div', 'sec-body');
+    sec.dataset.level = level;
+    sec.append(n, body);
+    stack[stack.length - 1].body.append(sec);
+    stack.push({ level, body });
+  }
+  for (const sec of $$('section.sec', out)) {
+    const h = sec.firstElementChild, body = sec.lastElementChild;
+    if (![...body.childNodes].some((c) => c.nodeType === 1 || c.textContent.trim())) continue; // 改行だけの見出しは折りたためない
+    const shut = tab.collapsed.has(h.id);
+    sec.classList.toggle('collapsed', shut);
+    const btn = el('button', 'sec-toggle', shut ? '▶' : '▼');
+    btn.type = 'button'; btn.title = 'クリックで折りたたみ / 展開(Alt+クリックで同じ階層をまとめて)';
+    btn.setAttribute('aria-expanded', String(!shut)); btn.setAttribute('aria-label', `${h.textContent} を${shut ? '展開' : '折りたたむ'}`);
+    h.prepend(btn);
+  }
+  root.replaceChildren(out);
+}
+function setCollapsed(sec, shut) {
+  const h = sec.firstElementChild, btn = $('.sec-toggle', h), tab = state.active;
+  if (!btn) return;
+  sec.classList.toggle('collapsed', shut);
+  btn.textContent = shut ? '▶' : '▼';
+  btn.setAttribute('aria-expanded', String(!shut));
+  btn.setAttribute('aria-label', `${h.textContent.replace(/^[▶▼]/, '')} を${shut ? '展開' : '折りたたむ'}`);
+  if (tab && tab.collapsed) { if (shut) tab.collapsed.add(h.id); else tab.collapsed.delete(h.id); }
+}
+function toggleSection(btn, all) {
+  const sec = btn.closest('section.sec'), shut = !sec.classList.contains('collapsed');
+  const targets = all ? $$(`section.sec[data-level="${sec.dataset.level}"]`, $('#preview')) : [sec];
+  for (const x of targets) setCollapsed(x, shut);
+}
+/** 折りたたまれた見出しの中へ移動するときは、その見出しを囲む折りたたみをすべて開く */
+function revealInPreview(node) {
+  for (let p = node.parentElement; p && p.id !== 'preview'; p = p.parentElement) {
+    if (p.matches('section.sec.collapsed') && !p.firstElementChild.contains(node)) setCollapsed(p, false);
   }
 }
 /** プレビューのコードブロックにコピーボタンを付ける。PDF 用の描画には付けない */
@@ -1505,6 +1562,8 @@ function initPreview() {
     if (a && e.button === 1) { e.preventDefault(); openExternal(a.dataset.href); }
   });
   $('#preview').addEventListener('click', guard(async (e) => {
+    const fold = e.target.closest('.sec-toggle');
+    if (fold) { toggleSection(fold, e.altKey); return; }
     const copy = e.target.closest('.copy-btn');
     if (copy) { await onCopy(copy); return; }
     const box = e.target.closest('input[data-task]');
@@ -1513,7 +1572,7 @@ function initPreview() {
     e.preventDefault();
     if (a.dataset.href) { openExternal(a.dataset.href); return; }
     if (a.classList.contains('ext')) { toast('このリンクは開けません', true); return; }
-    if (a.dataset.anchor != null) { const h = document.getElementById(a.dataset.anchor); if (h) h.scrollIntoView(); return; }
+    if (a.dataset.anchor != null) { const h = document.getElementById(a.dataset.anchor); if (h) { revealInPreview(h); h.scrollIntoView(); } return; }
     if (a.dataset.path) {
       const n = findNode(a.dataset.path);
       if (n && n.kind === 'file') await openFile(n); else toast('リンク先のファイルが見つかりません', true);
