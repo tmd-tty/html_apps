@@ -143,6 +143,16 @@ label.check input{width:16px;height:16px;margin:0;accent-color:var(--bar-hi)}
 .error{min-height:20px;margin:0;padding:2px 18px 0;color:var(--danger);font-size:12px}
 .msg{margin:0;padding:6px 18px 4px;overflow-wrap:anywhere}
 .foot{display:flex;gap:8px;padding:10px 18px 15px}
+/* 右クリックメニュー */
+#ctx{position:fixed;z-index:20;min-width:200px;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:0 8px 28px rgba(0,0,0,.35)}
+#ctx button{display:flex;align-items:center;gap:9px;width:100%;padding:6px 10px;border:0;border-radius:4px;background:none;color:var(--text);text-align:left;cursor:pointer}
+#ctx button:hover,#ctx button:focus-visible{background:var(--hover);outline:0}
+#ctx button.danger{color:var(--danger)}
+#ctx button kbd{margin-left:auto;color:var(--muted);font:11px system-ui,sans-serif}
+#ctx hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+#ctx .ctx-title{padding:4px 10px 3px;color:var(--muted);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr.added th,tr.added td{animation:added 1.4s ease-out}
+@keyframes added{0%,30%{background-color:var(--now)}100%{}}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:10;padding:8px 15px;border-radius:7px;background:var(--danger);color:#fff;max-width:80vw;box-shadow:0 6px 20px rgba(0,0,0,.35)}
 [data-theme="dark"] #toast{color:#2a0603}
 #toast:empty{display:none}
@@ -917,6 +927,103 @@ async function submitGroup() {
   changed();
 }
 
+/* ---------- 複製と右クリックメニュー ---------- */
+function uniqueRowName(group, base) {
+  const used = new Set(state.tasks.filter((t) => t.group === group && t.row).map((t) => t.row));
+  let name = `${base} のコピー`;
+  for (let n = 2; used.has(name); n++) name = `${base} のコピー ${n}`;
+  return name;
+}
+/** 元の行のすぐ下に複製を置く。同じ行に重ねると見分けにくいので、項目の複製は別の行にする */
+function duplicateItems(items, rowName) {
+  const taken = new Set(state.tasks.map((t) => t.name));
+  const copyName = (n) => { let c = `${n} のコピー`; for (let i = 2; taken.has(c); i++) c = `${n} のコピー ${i}`; return c; };
+  const copies = items.map((t) => {
+    const c = { ...t, name: rowName ? t.name : copyName(t.name) };
+    if (rowName) c.row = rowName; else delete c.row;
+    return c;
+  });
+  const anchor = rowMates(items[0]), at = state.tasks.indexOf(anchor[anchor.length - 1]) + 1;
+  state.tasks.splice(at, 0, ...copies);
+  changed();
+  flashRow(copies[0]);
+}
+function flashRow(item) {
+  const node = [...document.querySelectorAll('#gantt .bar, #gantt .ms')].find((x) => itemOf.get(x) === item);
+  const tr = node && node.closest('tr');
+  if (!tr) return;
+  tr.classList.add('added');
+  tr.scrollIntoView({ block: 'nearest' });
+}
+function toggleHighlight(t) { t.highlight = !t.highlight; changed(); }
+function hideMenu() { const m = $('#ctx'); if (m) m.remove(); }
+/** items は { label, run, danger } か区切りの '-' */
+function showMenu(x, y, title, items) {
+  hideMenu();
+  const m = el('div'); m.id = 'ctx'; m.setAttribute('role', 'menu');
+  if (title) m.append(el('div', 'ctx-title', title));
+  for (const it of items) {
+    if (it === '-') { m.append(el('hr')); continue; }
+    const b = el('button', it.danger ? 'danger' : ''); b.type = 'button'; b.setAttribute('role', 'menuitem');
+    b.append(el('span', '', it.label));
+    if (it.hint) b.append(el('kbd', '', it.hint));
+    b.onclick = () => { hideMenu(); it.run(); };
+    m.append(b);
+  }
+  document.body.append(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 6))}px`;
+  m.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 6))}px`;
+  m.querySelector('button').focus();
+}
+function itemMenu(t) {
+  const kind = isMilestone(t) ? 'マイルストーン' : 'タスク';
+  return [
+    { label: '編集', run: () => openTask(t) },
+    { label: '複製', run: () => duplicateItems([t]) },
+    { label: t.highlight ? '強調表示を解除' : '強調表示する', run: () => toggleHighlight(t) },
+    '-',
+    { label: `${kind}を削除`, danger: true, run: () => removeTask(t) },
+  ];
+}
+/** target(バー、◆、行)に合わせたメニューを出す。x / y がなければ要素の位置に出す */
+function openMenuFor(target, x, y) {
+  const hit = target.closest && target.closest('.bar, .ms'), tr = target.closest && target.closest('#gantt tbody tr'), ref = tr && rowOf.get(tr);
+  if (!hit && !ref) return false;
+  const anchor = (hit || tr.querySelector('th')).getBoundingClientRect();
+  x = x || anchor.left + 8; y = y || anchor.bottom - 4;
+  if (hit) { const t = itemOf.get(hit); showMenu(x, y, t.name, itemMenu(t)); return true; }
+  if (ref.group != null) { showMenu(x, y, ref.group, [{ label: 'グループ名を変更', run: () => openGroup(ref.group) }]); return true; }
+  const entry = rowEntries(ref.task.group).find((en) => en.items.includes(ref.task));
+  if (!isShared(entry)) { showMenu(x, y, ref.task.name, itemMenu(ref.task)); return true; }
+  showMenu(x, y, entry.row, [
+    { label: '行の名前を変更', run: () => openRow(entry) },
+    { label: '行を複製', run: () => duplicateItems(entry.items, uniqueRowName(ref.task.group, entry.row)) },
+  ]);
+  return true;
+}
+function initContextMenu() {
+  const box = $('#gantt');
+  box.addEventListener('contextmenu', (e) => { if (openMenuFor(e.target, e.clientX, e.clientY)) e.preventDefault(); });
+  // Mac は Shift+F10 でメニューが開かないので、キーを直接受ける。Windows では標準のメニューを抑えて同じものを出す
+  box.addEventListener('keydown', (e) => {
+    if (!((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu')) return;
+    if (openMenuFor(e.target)) { e.preventDefault(); e.stopPropagation(); }
+  });
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('#ctx')) hideMenu(); });
+  document.addEventListener('keydown', (e) => {
+    const m = $('#ctx'); if (!m) return;
+    if (e.key === 'Escape') { e.preventDefault(); hideMenu(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { // メニューの中を矢印キーで移動する
+      e.preventDefault();
+      const bs = [...m.querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+      bs[(i + (e.key === 'ArrowDown' ? 1 : bs.length - 1)) % bs.length].focus();
+    }
+  }, true);
+  box.addEventListener('scroll', hideMenu);
+  window.addEventListener('blur', hideMenu);
+}
+
 async function removeTask(t) {
   $('#taskDlg').close();
   if (!await ask('タスクの削除', `「${t.name}」を削除しますか?`, '削除', true)) return;
@@ -1427,6 +1534,7 @@ window.addEventListener('beforeunload', (e) => { if (state.docs.some((d) => fiel
 setTheme(store.get('theme') === 'light' ? 'light' : 'dark');
 buildSwatches();
 initDrag();
+initContextMenu();
 initBarDrag();
 state.docs.push(newDoc(true));
 switchTo(state.docs[0]);
