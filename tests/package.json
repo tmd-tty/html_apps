@@ -1,0 +1,12 @@
+{
+  "name": "html-apps-tests",
+  "private": true,
+  "type": "module",
+  "description": "html_apps のブラウザテスト",
+  "scripts": {
+    "test": "node run-all.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.65.1"
+  }
+}

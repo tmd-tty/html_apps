@@ -38,6 +38,9 @@ h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.icon{width:32px;padding:0;font-size:16px}
+.btn:disabled{opacity:.4;cursor:default}
+.btn:disabled:hover{background:var(--panel)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
 .grow{flex:1}
@@ -162,6 +165,8 @@ tr.added th,tr.added td{animation:added 1.4s ease-out}
 <body>
 <header>
   <h1>Macro Schedule Editor</h1>
+  <button class="btn icon" id="undo" type="button" title="元に戻す(Ctrl / ⌘ + Z)" aria-label="元に戻す" disabled>↶</button>
+  <button class="btn icon" id="redo" type="button" title="やり直す(Ctrl / ⌘ + Shift + Z)" aria-label="やり直す" disabled>↷</button>
   <button class="btn primary" id="add" type="button">タスク追加</button>
   <button class="btn" id="addMs" type="button">マイルストーン追加</button>
   <i class="sep"></i>
@@ -230,6 +235,7 @@ const hasFsApi = 'showSaveFilePicker' in window;
 const store = {
   get(k) { try { return localStorage.getItem('mse.' + k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem('mse.' + k, v); } catch { /* 保存できなくても動作は続ける */ } },
+  remove(k) { try { localStorage.removeItem('mse.' + k); } catch { /* 保存できなくても動作は続ける */ } },
 };
 
 /* state.tasks の順序がそのまま表示順になる。マイルストーンは type と date を持ち、start / end は日付の月。
@@ -492,7 +498,7 @@ function showStatus(kind, text) {
   $('#statusText').append(b);
 }
 function refreshStatus() {
-  renderTabs();
+  renderTabs(); paintHistory();
   const name = docName(state);
   document.title = `${state.dirty ? '● ' : ''}${name} - ${APP}`;
   if (state.dirty) showStatus('dirty', `${name}: 未保存の変更があります`);
@@ -512,7 +518,74 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { $('#toast').textContent = ''; }, 6000);
 }
-function changed() { normalize(); state.dirty = true; render(); refreshStatus(); }
+/* ---------- 元に戻す・やり直す ---------- */
+/* 内容を変える操作はすべて changed() を通るので、ここで直前の状態を積めばどの操作も戻せる。
+   snap は今の内容、saved は保存した時点の内容で、両者を比べて未保存かどうかを決める */
+const HISTORY_MAX = 100;
+const snapshot = () => JSON.stringify(state.tasks);
+function changed() {
+  normalize();
+  const now = snapshot();
+  if (now !== state.snap) {
+    state.past.push(state.snap);
+    if (state.past.length > HISTORY_MAX) state.past.shift();
+    state.future = [];
+    state.snap = now;
+  }
+  afterHistory();
+}
+function afterHistory() {
+  state.dirty = state.snap !== state.saved;
+  render(); refreshStatus(); saveDraftsLater();
+}
+function restoreSnap(from, to) {
+  if (!from.length) return;
+  to.push(state.snap);
+  state.snap = from.pop();
+  state.tasks = JSON.parse(state.snap);
+  afterHistory();
+}
+const undo = () => restoreSnap(state.past, state.future);
+const redo = () => restoreSnap(state.future, state.past);
+function paintHistory() {
+  const u = $('#undo'), r = $('#redo');
+  if (u) u.disabled = !state.past.length;
+  if (r) r.disabled = !state.future.length;
+}
+function markClean() { state.saved = state.snap; state.dirty = false; saveDraftsLater(); }
+
+/* ---------- 未保存の内容の自動退避 ---------- */
+/* 未保存のタブの内容をブラウザ内に控え、次に開いたときに復元できるようにする。外部へは送らない */
+function saveDrafts() {
+  const out = {};
+  for (const d of state.docs) {
+    if (!field(d, 'dirty')) continue;
+    out[d.id] = { name: docName(d === state.doc ? state : d), fileName: field(d, 'fileName') || field(d, 'suggest') || '', tasks: field(d, 'snap'), time: Date.now() };
+  }
+  if (Object.keys(out).length) store.set('drafts', JSON.stringify(out)); else store.remove('drafts');
+}
+let draftTimer;
+function saveDraftsLater() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDrafts, 800); }
+async function restoreDrafts() {
+  let drafts;
+  try { drafts = Object.values(JSON.parse(store.get('drafts') || '{}')); } catch { drafts = []; }
+  if (!drafts.length) return;
+  const when = new Date(Math.max(...drafts.map((x) => x.time))).toLocaleString('ja-JP');
+  const r = await ask('未保存の内容があります', `前回保存されなかった ${drafts.length} 件の内容が残っています(最終更新 ${when})。復元しますか?`, '復元する', false, '破棄する');
+  if (r === 'alt') { store.remove('drafts'); return; }
+  if (r !== true) return; // キャンセルなら控えを残し、次回また確認する
+  const blank = isPristine() ? state.doc : null;
+  for (const x of drafts) {
+    let tasks;
+    try { tasks = JSON.parse(x.tasks); if (!Array.isArray(tasks)) continue; } catch { continue; }
+    const d = newDoc(false);
+    Object.assign(d, { tasks, snap: JSON.stringify(tasks), saved: null, dirty: true, label: `${x.name}(復元)`, suggest: x.fileName });
+    state.docs.push(d);
+  }
+  if (blank && state.docs.length > 1) { state.docs.splice(state.docs.indexOf(blank), 1); state.doc = null; }
+  switchTo(state.docs[state.docs.length - 1]);
+  saveDrafts();
+}
 
 /* ---------- 確認ダイアログ ---------- */
 /** 確認ダイアログ。alt を渡すと3つ目のボタンを出し、押されたら 'alt' を返す */
@@ -531,10 +604,13 @@ function ask(title, message, yes, danger, alt) {
 
 /* ---------- タブ ---------- */
 /* 表示中のスケジュールは state の各項目に展開し、切り替えるときに文書へ書き戻す */
-const DOC_KEYS = ['tasks', 'handle', 'fileName', 'mtime', 'dirty', 'lastGroup', 'label'];
+const DOC_KEYS = ['tasks', 'handle', 'fileName', 'mtime', 'dirty', 'lastGroup', 'label', 'snap', 'saved', 'past', 'future', 'suggest'];
 let untitledSeq = 0;
 function newDoc(untitled) {
-  return { tasks: [], handle: null, fileName: null, mtime: null, dirty: false, lastGroup: '', label: untitled ? `新規スケジュール ${++untitledSeq}` : '', top: 0, left: 0 };
+  return {
+    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, tasks: [], handle: null, fileName: null, mtime: null, dirty: false, lastGroup: '',
+    label: untitled ? `新規スケジュール ${++untitledSeq}` : '', top: 0, left: 0, snap: '[]', saved: '[]', past: [], future: [], suggest: '',
+  };
 }
 const docName = (d) => d.fileName || d.label || '新規スケジュール';
 const field = (d, k) => (d === state.doc ? state[k] : d[k]);
@@ -572,6 +648,7 @@ async function closeTab(d) {
   if (!state.docs.length) state.docs.push(newDoc(true)); // 最後のタブを閉じたら空の新規タブにする
   if (state.doc) renderTabs(); // 裏のタブを閉じたときは表示中のまま
   else switchTo(state.docs[Math.min(i, state.docs.length - 1)]);
+  saveDrafts(); // 保存せずに閉じたタブの控えは消す
 }
 function renderTabs() {
   const box = $('#tabs'); if (!box || !state.docs) return;
@@ -1064,7 +1141,7 @@ function parseFile(text) {
   });
 }
 const PICKER = { types: [{ description: 'スケジュール (JSON)', accept: { 'application/json': ['.json'] } }] };
-const suggestedName = () => state.fileName || 'macro-schedule.json';
+const suggestedName = () => state.fileName || state.suggest || 'macro-schedule.json';
 /** 新しいタブで開く。表示中のタブが手付かずの新規なら、そのタブを使う */
 function loaded(text, name, handle, mtime) {
   const tasks = parseFile(text); // 不正なファイルなら、ここで止まってタブは増えない
@@ -1073,8 +1150,9 @@ function loaded(text, name, handle, mtime) {
     state.docs.splice(state.docs.indexOf(state.doc) + 1, 0, d);
     stash(); state.doc = d;
   }
-  Object.assign(state, { tasks, fileName: name, handle, mtime, dirty: false, lastGroup: '', label: '' });
+  Object.assign(state, { tasks, fileName: name, handle, mtime, dirty: false, lastGroup: '', label: '', past: [], future: [], suggest: '' });
   normalize();
+  state.snap = state.saved = snapshot();
   render();
   $('#gantt').scrollTo(0, 0);
   refreshStatus();
@@ -1094,7 +1172,7 @@ function download() {
   const a = el('a'); a.href = URL.createObjectURL(new Blob([serialize()], { type: 'application/json' })); a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-  state.fileName = name; state.dirty = false;
+  state.fileName = name; markClean();
   render();
   markSaved(`${name} をダウンロードしました`);
 }
@@ -1103,7 +1181,8 @@ async function writeTo(h) {
   await w.write(serialize());
   await w.close();
   const f = await h.getFile();
-  Object.assign(state, { handle: h, fileName: f.name, mtime: f.lastModified, dirty: false });
+  Object.assign(state, { handle: h, fileName: f.name, mtime: f.lastModified });
+  markClean();
   render();
   markSaved(`${f.name} に保存しました`);
 }
@@ -1528,7 +1607,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
-  if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); }
+  if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); } else if (k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); } else if (k === 'y') { e.preventDefault(); redo(); }
 });
 window.addEventListener('beforeunload', (e) => { if (state.docs.some((d) => field(d, 'dirty'))) { e.preventDefault(); e.returnValue = ''; } });
 setTheme(store.get('theme') === 'light' ? 'light' : 'dark');
@@ -1538,6 +1617,10 @@ initContextMenu();
 initBarDrag();
 state.docs.push(newDoc(true));
 switchTo(state.docs[0]);
+$('#undo').onclick = undo;
+$('#redo').onclick = redo;
+window.addEventListener('pagehide', saveDrafts);
+restoreDrafts();
 })();
 </script>
 </body>

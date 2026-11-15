@@ -88,9 +88,9 @@ body.no-editor #editorPane{display:none}
 #stack{flex:1;min-width:0;position:relative}
 .ed,#mirror{
   font:14px/22px "BIZ UDGothic","MS Gothic","Osaka-Mono","Noto Sans Mono CJK JP",ui-monospace,Menlo,Consolas,monospace;
-  padding:12px 16px;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;
+  padding:12px 16px;white-space:pre;overflow-wrap:normal;word-break:normal;tab-size:4;
 }
-.ed{position:absolute;inset:0;width:100%;height:100%;border:0;margin:0;resize:none;outline:0;overflow-y:scroll;background:var(--panel);color:var(--text)}
+.ed{position:absolute;inset:0;width:100%;height:100%;border:0;margin:0;resize:none;outline:0;overflow-y:scroll;overflow-x:auto;background:var(--panel);color:var(--text)}
 .ed::selection{background:var(--accent-soft)}
 [data-theme="dark"] .ed::selection{background:#35605b}
 #mirror{position:absolute;left:-99999px;top:0;visibility:hidden;padding:0}
@@ -284,7 +284,8 @@ function openModal({ title, body, footer, wide, onClose }) {
 }
 const button = (label, cls, onClick) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = onClick; return b; };
 
-function ask({ title, label, value = '', placeholder = '', selectEnd }) {
+/** caret を渡すと、文字を選ばずにその位置へカーソルを置く */
+function ask({ title, label, value = '', placeholder = '', selectEnd, caret }) {
   return new Promise((res) => {
     const inp = el('input'); inp.type = 'text'; inp.value = value; inp.placeholder = placeholder; inp.setAttribute('aria-label', label || title);
     let close;
@@ -292,7 +293,8 @@ function ask({ title, label, value = '', placeholder = '', selectEnd }) {
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ok(); } });
     const body = label ? [el('label', '', label), inp] : [inp];
     close = openModal({ title, body, onClose: res, footer: [button('キャンセル', '', () => close(null)), button('OK', 'primary', ok)] });
-    inp.focus(); inp.setSelectionRange(0, selectEnd == null ? value.length : selectEnd);
+    inp.focus();
+    if (caret != null) inp.setSelectionRange(caret, caret); else inp.setSelectionRange(0, selectEnd == null ? value.length : selectEnd);
   });
 }
 function choose({ title, message, buttons }) {
@@ -308,7 +310,9 @@ function choose({ title, message, buttons }) {
 const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 const INLINE_TAGS = new Set(['a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'button', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'input', 'kbd', 'label', 'mark', 'q', 's', 'samp', 'select', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr']);
 const TAG_TOKEN = /<!--[\s\S]*?-->|<!doctype[^>]*>|<(pre|textarea|script|style)\b(?:"[^"]*"|'[^']*'|[^>"'])*>[\s\S]*?<\/\1\s*>|<\/?[a-zA-Z](?:"[^"]*"|'[^']*'|[^>"'])*>|[^<]+|</gi;
-const INDENT = '  ';
+const INDENT = '    ';
+/** 新規作成の名前の初期値。今日の日付の後ろに続きを書けるようにする */
+const datePrefix = () => { const d = new Date(), z = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_`; };
 /** ブロック要素ごとに改行して字下げする。pre、textarea、script、style の中身は変えない */
 function formatHtml(text) {
   const out = [];
@@ -543,14 +547,16 @@ async function createFile(dir, name, open = true) {
 const menuActions = {
   newFile: guard(async (n) => {
     const d = dirFor(n);
-    let v = validName(await ask({ title: '新規ファイル', label: `${d.path || d.name} に作成`, value: '新規ファイル.html', selectEnd: 5 }));
+    const initial = `${datePrefix()}.html`;
+    let v = validName(await ask({ title: '新規ファイル', label: `${d.path || d.name} に作成`, value: initial, caret: initial.lastIndexOf('.') }));
     if (!v) return;
     if (!v.includes('.')) v += '.html';
     await createFile(d, v);
   }),
   newDir: guard(async (n) => {
     const d = dirFor(n);
-    const v = validName(await ask({ title: '新規フォルダ', label: `${d.path || d.name} に作成`, value: '新規フォルダ' }));
+    const initial = datePrefix();
+    const v = validName(await ask({ title: '新規フォルダ', label: `${d.path || d.name} に作成`, value: initial, caret: initial.length }));
     if (!v) return;
     if (await exists(d.handle, v)) { toast(`「${v}」は既に存在します`, true); return; }
     await d.handle.getDirectoryHandle(v, { create: true });
@@ -703,7 +709,7 @@ function initResizer() {
 /* ---------- タブ ---------- */
 function newEditor(tab, text) {
   const ta = el('textarea', 'ed');
-  ta.spellcheck = false; ta.value = text; ta.hidden = true; ta.setAttribute('aria-label', 'エディタ');
+  ta.spellcheck = false; ta.wrap = 'off'; ta.value = text; ta.hidden = true; ta.setAttribute('aria-label', 'エディタ');
   ta.addEventListener('input', () => onInput(tab));
   ta.addEventListener('scroll', syncGutterScroll);
   ta.addEventListener('keydown', onEditorKey);
@@ -855,7 +861,17 @@ function jumpTo(t, line, column = 0, length = 0) {
   const p = offsetOfLine(t.ta.value, line) + column;
   t.ta.focus(); t.ta.setSelectionRange(p, p + length);
   const m = $('#mirror').children[line];
-  if (m) t.ta.scrollTop = Math.max(0, m.offsetTop - t.ta.clientHeight / 3);
+  if (m) {
+    t.ta.scrollTop = Math.max(0, m.offsetTop - t.ta.clientHeight / 3);
+    // 折り返さないので、行の途中の該当箇所が見えるよう横にも動かす
+    const range = document.createRange(), node = m.firstChild;
+    t.ta.scrollLeft = 0;
+    if (node && column) {
+      range.setStart(node, Math.min(column, node.length)); range.collapse(true);
+      const x = range.getBoundingClientRect().left - m.getBoundingClientRect().left;
+      if (x > t.ta.clientWidth * 0.7) t.ta.scrollLeft = x - t.ta.clientWidth / 3;
+    }
+  }
   updateCurLine();
 }
 
@@ -886,7 +902,7 @@ function indentSelection(ta, shift) {
   if (b > a && s[b - 1] === '\n') b--;
   const ls = lineStart(s, a), le = lineEnd(s, b), block = s.slice(ls, le);
   const multi = block.includes('\n');
-  const next = block.split('\n').map((l) => (shift ? l.replace(/^( {1,2}|\t)/, '') : l ? '  ' + l : l)).join('\n');
+  const next = block.split('\n').map((l) => (shift ? l.replace(/^( {1,4}|\t)/, '') : l ? INDENT + l : l)).join('\n');
   if (next === block) return;
   if (multi || a !== ta.selectionEnd) replaceRange(ta, ls, le, next, ls, ls + next.length);
   else { const c = Math.max(ls, a + next.length - block.length); replaceRange(ta, ls, le, next, c); }

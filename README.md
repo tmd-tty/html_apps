@@ -12,3 +12,7 @@ HTMLファイルを保存するだけで使えるブラウザアプリの置き�
 - [HTML Studio](html-studio/README.md): ローカルフォルダを直接編集する HTML エディタ
 - [Macro Schedule Editor](macro-schedule-editor/README.md): プロジェクトの大日程を月単位で管理するガントチャート
 - [Org Chart Editor](org-chart-editor/README.md): 階層構造の体制図を作成して PowerPoint に出力するツール
+
+## テスト
+
+`tests/` に、各アプリを実際の Chrome で操作して確かめるテストがあります。実行方法は [tests/README.md](tests/README.md) を参照してください。

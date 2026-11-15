@@ -28,6 +28,8 @@ h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.icon{width:32px;padding:0;font-size:16px}
+.btn.on{background:var(--hover);border-color:var(--accent)}
 .btn:disabled{opacity:.6;cursor:default}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
@@ -43,6 +45,8 @@ h1{font-size:15px;margin:0 14px 0 0;white-space:nowrap}
 
 /* 図。画面と PowerPoint は同じ配置を使う */
 #canvas{flex:1;overflow:auto;min-height:0;padding:32px}
+#canvas.fit{display:flex;justify-content:center;align-items:flex-start}
+#canvas.fit .stage{min-width:0;flex:none}
 .stage{position:relative;display:inline-flex;gap:28px;align-items:flex-start;min-width:100%;justify-content:center}
 .stage>svg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
 .stage line{stroke:var(--link);stroke-width:1.5}
@@ -99,6 +103,8 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
 <body>
 <header>
   <h1>Org Chart Editor</h1>
+  <button class="btn icon" id="undo" type="button" title="元に戻す(Ctrl / ⌘ + Z)" aria-label="元に戻す" disabled>↶</button>
+  <button class="btn icon" id="redo" type="button" title="やり直す(Ctrl / ⌘ + Shift + Z)" aria-label="やり直す" disabled>↷</button>
   <button class="btn primary" id="add" type="button">ノード追加</button>
   <i class="sep"></i>
   <button class="btn" id="open" type="button" title="Ctrl / ⌘ + O">開く</button>
@@ -106,6 +112,7 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
   <button class="btn" id="saveAs" type="button" title="Ctrl / ⌘ + Shift + S">名前を付けて保存</button>
   <div id="status" role="status" aria-live="polite"><i></i><span id="statusText"></span></div>
   <span class="grow"></span>
+  <button class="btn" id="fit" type="button" aria-pressed="false" title="図全体を画面に収める">全体表示</button>
   <button class="btn" id="pptx" type="button">PowerPoint出力</button>
   <button class="btn" id="theme" type="button"></button>
 </header>
@@ -138,7 +145,7 @@ dialog h2{font-size:15px;margin:0;padding:15px 18px 6px}
 <dialog id="askDlg" aria-labelledby="askTitle">
   <h2 id="askTitle"></h2>
   <p class="msg" id="askMsg"></p>
-  <div class="foot"><span class="grow"></span><button class="btn" id="askNo" type="button">キャンセル</button><button class="btn" id="askYes" type="button"></button></div>
+  <div class="foot"><span class="grow"></span><button class="btn" id="askNo" type="button">キャンセル</button><button class="btn danger" id="askAlt" type="button" hidden></button><button class="btn" id="askYes" type="button"></button></div>
 </dialog>
 
 <script>
@@ -154,6 +161,7 @@ const hasFsApi = 'showSaveFilePicker' in window;
 const store = {
   get(k) { try { return localStorage.getItem('oce.' + k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem('oce.' + k, v); } catch { /* 保存できなくても動作は続ける */ } },
+  remove(k) { try { localStorage.removeItem('oce.' + k); } catch { /* 保存できなくても動作は続ける */ } },
 };
 const COLORS = {
   red: ['赤', 'D92D20'], orange: ['オレンジ', 'EF6C00'], yellow: ['黄', 'F2B705'], green: ['緑', '2E9E5B'], teal: ['青緑', '0E9AA7'],
@@ -169,7 +177,10 @@ function textOn(hex) {
 }
 
 /* ノードは { group, leaders: [], members: [], note?, color?, children: [] } の木。state.nodes が最上位の並び */
-const state = { nodes: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, parentPreset: null, drag: null };
+const state = {
+  nodes: [], handle: null, fileName: null, mtime: null, dirty: false, editing: null, parentPreset: null, drag: null,
+  snap: '[]', saved: '[]', past: [], future: [], label: '', suggest: '', fit: false,
+};
 const nodeOf = new WeakMap();
 
 /* ---------- 木の操作 ---------- */
@@ -267,6 +278,7 @@ function addActions(stage) {
 }
 function render() {
   const box = $('#canvas'), top = box.scrollTop, left = box.scrollLeft;
+  applyFit(null); // 線を描く前に配置を確定させる
   if (!state.nodes.length) {
     const e = el('div', 'empty');
     e.append(el('div', '', 'ノードがありません。'));
@@ -279,8 +291,20 @@ function render() {
   stage.append(...state.nodes.map((n) => branchFor(n, null)));
   box.replaceChildren(stage);
   addActions(stage); drawLines(stage);
+  applyFit(stage);
   box.scrollTop = top; box.scrollLeft = left;
 }
+/** 全体表示。線を描いた後に縮小するので、線とカードの位置関係は崩れない */
+function applyFit(stage) {
+  const box = $('#canvas');
+  box.classList.toggle('fit', state.fit);
+  $('#fit').classList.toggle('on', state.fit); $('#fit').setAttribute('aria-pressed', String(state.fit));
+  if (!stage || !state.fit) return;
+  const cs = getComputedStyle(box), padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const k = Math.min(1, (box.clientWidth - padX) / stage.offsetWidth, (box.clientHeight - padY) / stage.offsetHeight);
+  stage.style.zoom = String(Math.max(0.1, k));
+}
+function toggleFit() { state.fit = !state.fit; store.set('fit', state.fit ? '1' : ''); render(); }
 
 /* ---------- 状態表示 ---------- */
 function showStatus(kind, text) {
@@ -289,7 +313,8 @@ function showStatus(kind, text) {
   $('#statusText').replaceChildren(b);
 }
 function refreshStatus() {
-  const name = state.fileName || '新規体制図';
+  paintHistory();
+  const name = state.fileName || state.label || '新規体制図';
   document.title = `${state.dirty ? '● ' : ''}${name} - ${APP}`;
   if (state.dirty) showStatus('dirty', `${name}: 未保存の変更があります`); else showStatus('', name);
 }
@@ -307,7 +332,54 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { $('#toast').textContent = ''; }, 6000);
 }
-function changed() { state.dirty = true; render(); refreshStatus(); }
+/* ---------- 元に戻す・やり直す ---------- */
+/* 内容を変える操作はすべて changed() を通るので、ここで直前の状態を積めばどの操作も戻せる */
+const HISTORY_MAX = 100;
+const snapshot = () => JSON.stringify(state.nodes);
+function changed() {
+  const now = snapshot();
+  if (now !== state.snap) {
+    state.past.push(state.snap);
+    if (state.past.length > HISTORY_MAX) state.past.shift();
+    state.future = [];
+    state.snap = now;
+  }
+  afterHistory();
+}
+function afterHistory() { state.dirty = state.snap !== state.saved; render(); refreshStatus(); saveDraftLater(); }
+function restoreSnap(from, to) {
+  if (!from.length) return;
+  to.push(state.snap);
+  state.snap = from.pop();
+  state.nodes = JSON.parse(state.snap);
+  afterHistory();
+}
+const undo = () => restoreSnap(state.past, state.future);
+const redo = () => restoreSnap(state.future, state.past);
+function paintHistory() { $('#undo').disabled = !state.past.length; $('#redo').disabled = !state.future.length; }
+function markClean() { state.saved = state.snap; state.dirty = false; state.label = ''; saveDraftLater(); }
+
+/* ---------- 未保存の内容の自動退避 ---------- */
+/* 未保存の内容をブラウザ内に控え、次に開いたときに復元できるようにする。外部へは送らない */
+function saveDraft() {
+  if (!state.dirty) { store.remove('draft'); return; }
+  store.set('draft', JSON.stringify({ name: state.fileName || state.label || '新規体制図', fileName: state.fileName || state.suggest || '', nodes: state.snap, time: Date.now() }));
+}
+let draftTimer;
+function saveDraftLater() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 800); }
+async function restoreDraft() {
+  let d;
+  try { d = JSON.parse(store.get('draft') || 'null'); } catch { d = null; }
+  if (!d || typeof d.nodes !== 'string') return;
+  const r = await ask('未保存の内容があります', `前回保存されなかった「${d.name}」の内容が残っています(最終更新 ${new Date(d.time).toLocaleString('ja-JP')})。復元しますか?`, '復元する', false, '破棄する');
+  if (r === 'alt') { store.remove('draft'); return; }
+  if (r !== true) return; // キャンセルなら控えを残し、次回また確認する
+  let nodes;
+  try { nodes = parseFile(JSON.stringify({ nodes: JSON.parse(d.nodes) })); } catch (e) { toast(`復元できませんでした: ${e.message}`); return; }
+  Object.assign(state, { nodes, handle: null, fileName: null, mtime: null, label: `${d.name}(復元)`, suggest: d.fileName, past: [], future: [], saved: null });
+  state.snap = snapshot();
+  afterHistory();
+}
 const guard = (fn) => async (...a) => {
   try { await fn(...a); } catch (e) {
     if (e && e.name === 'AbortError') return;
@@ -315,13 +387,15 @@ const guard = (fn) => async (...a) => {
     toast(`エラー: ${(e && e.message) || e}`);
   }
 };
-function ask(title, message, yes, danger) {
+/** 確認ダイアログ。alt を渡すと3つ目のボタンを出し、押されたら 'alt' を返す */
+function ask(title, message, yes, danger, alt) {
   return new Promise((res) => {
-    const d = $('#askDlg'), y = $('#askYes'), n = $('#askNo');
+    const d = $('#askDlg'), y = $('#askYes'), n = $('#askNo'), a = $('#askAlt');
     $('#askTitle').textContent = title; $('#askMsg').textContent = message;
     y.textContent = yes; y.className = 'btn ' + (danger ? 'danger' : 'primary');
-    const done = (v) => { y.onclick = n.onclick = d.oncancel = null; d.close(); res(v); };
-    y.onclick = () => done(true); n.onclick = () => done(false);
+    a.hidden = !alt; a.textContent = alt || '';
+    const done = (v) => { y.onclick = n.onclick = a.onclick = d.oncancel = null; d.close(); res(v); };
+    y.onclick = () => done(true); n.onclick = () => done(false); a.onclick = () => done('alt');
     d.oncancel = (e) => { e.preventDefault(); done(false); };
     d.showModal(); n.focus();
   });
@@ -451,10 +525,12 @@ function parseFile(text) {
   return d.nodes.map((x) => node(x, 0));
 }
 const PICKER = { types: [{ description: '体制図 (JSON)', accept: { 'application/json': ['.json'] } }] };
-const suggestedName = () => state.fileName || 'org-chart.json';
+const suggestedName = () => state.fileName || state.suggest || 'org-chart.json';
 function loaded(text, name, handle, mtime) {
   state.nodes = parseFile(text);
-  Object.assign(state, { fileName: name, handle, mtime, dirty: false });
+  Object.assign(state, { fileName: name, handle, mtime, dirty: false, past: [], future: [], label: '', suggest: '' });
+  state.snap = state.saved = snapshot();
+  saveDraftLater();
   $('#canvas').scrollTo(0, 0);
   render(); refreshStatus();
 }
@@ -473,7 +549,7 @@ function saveDownload(blob, name) {
 function download() {
   const name = suggestedName();
   saveDownload(new Blob([serialize()], { type: 'application/json' }), name);
-  state.fileName = name; state.dirty = false;
+  state.fileName = name; markClean();
   markSaved(`${name} をダウンロードしました`);
 }
 async function writeTo(h) {
@@ -481,7 +557,8 @@ async function writeTo(h) {
   await w.write(serialize());
   await w.close();
   const f = await h.getFile();
-  Object.assign(state, { handle: h, fileName: f.name, mtime: f.lastModified, dirty: false });
+  Object.assign(state, { handle: h, fileName: f.name, mtime: f.lastModified });
+  markClean();
   markSaved(`${f.name} に保存しました`);
 }
 async function saveAs() {
@@ -612,12 +689,19 @@ $('#fGroup').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.is
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || $('dialog[open]')) return;
   const k = e.key.toLowerCase();
-  if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); }
+  if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); } else if (k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); } else if (k === 'y') { e.preventDefault(); redo(); }
 });
 window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
 buildSwatches(); initDrag();
 setTheme(store.get('theme') === 'light' ? 'light' : 'dark');
+state.fit = store.get('fit') === '1';
+$('#undo').onclick = undo;
+$('#redo').onclick = redo;
+$('#fit').onclick = toggleFit;
+new ResizeObserver(() => { if (state.fit) render(); }).observe($('#canvas'));
+window.addEventListener('pagehide', saveDraft);
 render(); refreshStatus();
+restoreDraft();
 })();
 </script>
 </body>

@@ -50,7 +50,19 @@ body.no-sidebar #sidebar,body.no-sidebar #resizer{display:none}
 .side-head{height:34px;display:flex;align-items:center;gap:2px;padding:0 6px 0 12px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em;border-bottom:1px solid var(--line)}
 .side-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .side-head .tb{height:26px;min-width:26px;padding:0}
+[hidden]{display:none!important}
 #tree{flex:1;overflow:auto;padding:4px 0 24px;min-height:0;user-select:none}
+/* サイドバーの表示切り替えとアウトライン */
+.side-tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line)}
+.side-tabs button{flex:1;height:28px;border:0;border-radius:5px 5px 0 0;background:none;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
+.side-tabs button:hover{background:var(--hover)}
+.side-tabs button[aria-selected="true"]{background:var(--panel2);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+#outline{flex:1;overflow:auto;padding:6px 0 24px;min-height:0}
+#outline button{display:block;width:100%;padding:4px 10px;border:0;background:none;color:var(--text);text-align:left;cursor:pointer;font-size:12.5px;line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#outline button:hover{background:var(--hover)}
+#outline button.lv1{font-weight:700}
+#outline button.cur{background:var(--accent-soft);color:var(--accent)}
+#outline .outline-empty{padding:16px 14px;color:var(--muted)}
 #tree.drop-root{box-shadow:inset 0 0 0 2px var(--accent)}
 .row{display:flex;align-items:center;gap:5px;height:26px;padding-right:8px;cursor:pointer;white-space:nowrap}
 .row:hover{background:var(--hover)}
@@ -251,8 +263,10 @@ kbd{font:12px ui-monospace,Menlo,Consolas,monospace;background:var(--panel2);bor
 </header>
 <main>
   <aside id="sidebar">
-    <div class="side-head"><span id="rootName">エクスプローラー</span><button class="tb" id="refresh" title="フォルダを再読み込み"></button></div>
+    <div class="side-tabs" role="tablist"><button type="button" id="sideFiles" role="tab" aria-selected="true">ファイル</button><button type="button" id="sideOutline" role="tab" aria-selected="false">アウトライン</button></div>
+    <div class="side-head" id="filesHead"><span id="rootName">エクスプローラー</span><button class="tb" id="refresh" title="フォルダを再読み込み"></button></div>
     <div id="tree" tabindex="-1"></div>
+    <nav id="outline" aria-label="アウトライン" hidden></nav>
   </aside>
   <div id="resizer" role="separator" aria-orientation="vertical" title="ドラッグで幅を変更"></div>
   <section id="workspace">
@@ -982,7 +996,7 @@ function activate(t) {
     t.ta.scrollTop = t.top || 0;
     updateGutter(); t.ta.focus();
   }
-  renderTabs(); renderTree(); renderPreview();
+  renderTabs(); renderTree(); renderPreview(); renderOutline();
 }
 function renderTabs() {
   const box = $('#tabs');
@@ -1025,6 +1039,7 @@ function onInput(t) {
   if (d !== t.dirty) { t.dirty = d; renderTabs(); }
   scheduleGutter();
   renderLater();
+  outlineLater();
 }
 async function saveTab(t) {
   if (!t || t.kind !== 'text') return false;
@@ -1087,6 +1102,58 @@ function updateCurLine() {
   const n = lineIndexAt(t.ta.value, t.ta.selectionStart);
   curLine = $('#gutterIn').children[n] || null;
   if (curLine) curLine.classList.add('cur');
+  markOutline(n);
+}
+/* ---------- アウトライン ---------- */
+/* 本文の見出し行から一覧を作る。プレビューの見出しとは、文書直下の見出しの並び順で対応させる */
+function headingLines(text) {
+  const lines = text.split('\n'), fence = fenceMask(lines), out = [];
+  lines.forEach((l, i) => {
+    const m = !fence[i] && l.match(/^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/);
+    if (m) out.push({ line: i, level: m[1].length, text: plainHeading(m[2]) });
+  });
+  return out;
+}
+const plainHeading = (s) => s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]+/g, '').trim() || '(見出し)';
+let outlineItems = [];
+function renderOutline() {
+  const box = $('#outline'); if (!box || box.hidden) return;
+  const t = state.active;
+  if (!t || !t.ta || !MD_RE.test(t.name)) { outlineItems = []; box.replaceChildren(el('div', 'outline-empty', 'Markdown ファイルを開くと、見出しの一覧を表示します。')); return; }
+  outlineItems = headingLines(t.ta.value);
+  if (!outlineItems.length) { box.replaceChildren(el('div', 'outline-empty', '見出しがありません。')); return; }
+  const top = box.scrollTop, frag = document.createDocumentFragment();
+  outlineItems.forEach((h, i) => {
+    const b = el('button', `lv${h.level}`, h.text);
+    b.type = 'button'; b.title = h.text; b.style.paddingLeft = `${10 + (h.level - 1) * 14}px`;
+    b.onclick = () => gotoHeading(i);
+    frag.append(b);
+  });
+  box.replaceChildren(frag); box.scrollTop = top;
+  markOutline(lineIndexAt(t.ta.value, t.ta.selectionStart));
+}
+const outlineLater = debounce(renderOutline, 200);
+/** カーソルのある節の見出しを強調する */
+function markOutline(line) {
+  const box = $('#outline'); if (!box || box.hidden) return;
+  let cur = -1;
+  outlineItems.forEach((h, i) => { if (h.line <= line) cur = i; });
+  [...box.querySelectorAll('button')].forEach((b, i) => b.classList.toggle('cur', i === cur));
+}
+function gotoHeading(i) {
+  const h = outlineItems[i], t = state.active; if (!h || !t || !t.ta) return;
+  if (state.mode !== 'read') jumpTo(t, h.line, 0, 0);
+  const heads = $$('#preview section.sec > :is(h1,h2,h3,h4,h5,h6)');
+  const target = heads.length === outlineItems.length ? heads[i] : heads.find((x) => x.textContent.replace(/^[▶▼]/, '').trim() === h.text);
+  if (target) { revealInPreview(target); target.scrollIntoView({ block: 'start' }); }
+  markOutline(h.line);
+}
+function setSideView(view) {
+  const outline = view === 'outline';
+  $('#sideFiles').setAttribute('aria-selected', String(!outline)); $('#sideOutline').setAttribute('aria-selected', String(outline));
+  $('#tree').hidden = outline; $('#filesHead').hidden = outline; $('#outline').hidden = !outline;
+  store.set('sideView', view);
+  if (outline) renderOutline();
 }
 function lineIndexAt(s, pos) { let n = 0; for (let i = s.indexOf('\n'); i >= 0 && i < pos; i = s.indexOf('\n', i + 1)) n++; return n; }
 function offsetOfLine(s, line) { let p = 0; for (let i = 0; i < line; i++) { const k = s.indexOf('\n', p); if (k < 0) return s.length; p = k + 1; } return p; }
@@ -2231,6 +2298,9 @@ async function boot() {
   for (const b of $$('[data-cmd]')) b.addEventListener('click', () => commands[b.dataset.cmd].run());
   paintCommands();
   initTree(); initResizer(); initPreview();
+  $('#sideFiles').onclick = () => setSideView('files');
+  $('#sideOutline').onclick = () => setSideView('outline');
+  setSideView(store.get('sideView', 'files') === 'outline' ? 'outline' : 'files');
   document.addEventListener('keydown', onGlobalKey, true);
   window.addEventListener('beforeunload', (e) => { if (state.tabs.some((t) => t.dirty)) { e.preventDefault(); e.returnValue = ''; } });
   new ResizeObserver(scheduleGutter).observe($('#stack'));
