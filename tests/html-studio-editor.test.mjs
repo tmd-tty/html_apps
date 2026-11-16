@@ -1,5 +1,5 @@
 import { chromium } from 'playwright-core';import http from 'node:http';import fs from 'node:fs';
-import { appHtml, appPath, outDir, MD_HOOK, HTS_HOOK } from './helpers.mjs';
+import { appHtml, appPath, outDir, MD_HOOK, HTS_HOOK, MOD } from './helpers.mjs';
 setTimeout(()=>{console.log('WATCHDOG');process.exit(3)},90000);process.on('unhandledRejection',e=>{console.log('REJECT',String(e).slice(0,500));process.exit(2)});
 const html=appHtml('html-studio',HTS_HOOK);let hits=[];const srv=http.createServer((q,r)=>{if(q.url!=='/')hits.push(q.url);r.setHeader('content-type','text/html');r.end(html)}).listen(0,'127.0.0.1');await new Promise(r=>srv.once('listening',r));const O=`http://127.0.0.1:${srv.address().port}`;
 const b=await chromium.launch({channel:'chrome',headless:true});const page=await (await b.newContext({viewport:{width:1300,height:800}})).newPage();const errs=[];page.on('pageerror',e=>errs.push(e.message));page.on('console',m=>{if(m.type()==='error')errs.push(m.text().slice(0,200))});
@@ -13,7 +13,7 @@ await setv('a\nb\n');await page.$eval(ta,e=>e.setSelectionRange(0,3));await page
 await setv('');await page.keyboard.type('<div>');await page.keyboard.press('Enter');ok('enter expand 4',(await val())==='<div>\n    \n</div>',JSON.stringify(await val()));
 ok('format 4',(await T(()=>__h.formatHtml('<div><p>a</p></div>')))==='<div>\n    <p>a</p>\n</div>\n',JSON.stringify(await T(()=>__h.formatHtml('<div><p>a</p></div>'))));
 await setv('<p>'+'長い行'.repeat(300)+'目印</p>\nshort');const nw=await T(()=>{const t=__h.state.active.ta;return {wrap:t.getAttribute('wrap'),ws:getComputedStyle(t).whiteSpace,over:t.scrollWidth>t.clientWidth+500,g:new Set([...document.getElementById('gutterIn').children].map(c=>c.offsetHeight)).size}});ok('no wrap',nw.wrap==='off'&&nw.ws==='pre'&&nw.over&&nw.g===1,JSON.stringify(nw));
-await page.keyboard.press('Meta+Shift+f');await page.waitForSelector('.modal input');await page.fill('.modal input','目印');await page.waitForSelector('.sr-hit mark:text-is("目印")');await page.click('.sr-hit');await page.waitForTimeout(150);ok('search jumps sideways',await T(()=>__h.state.active.ta.scrollLeft)>1000);
+await page.keyboard.press(MOD+'+Shift+f');await page.waitForSelector('.modal input');await page.fill('.modal input','目印');await page.waitForSelector('.sr-hit mark:text-is("目印")');await page.click('.sr-hit');await page.waitForTimeout(150);ok('search jumps sideways',await T(()=>__h.state.active.ta.scrollLeft)>1000);
 const z=n=>String(n).padStart(2,'0'),nd=new Date(),ymd=`${nd.getFullYear()}${z(nd.getMonth()+1)}${z(nd.getDate())}`;
 await T(()=>{__h.menuActions.newFile(__h.findNode(''))});await page.waitForSelector('.modal');let ini=await page.$eval('.modal input',e=>({v:e.value,s:e.selectionStart,e:e.selectionEnd}));ok('file default',ini.v===`${ymd}_.html`&&ini.s===ini.e&&ini.s===ini.v.length-5,JSON.stringify(ini));
 await page.keyboard.type('トップ');await page.keyboard.press('Enter');await page.waitForFunction(y=>__h.state.active?.name===`${y}_トップ.html`,ymd);ok('created with template',(await val()).includes('<!doctype html>'));
