@@ -1,4 +1,4 @@
-// 4つのアプリを、実際の使い方と同じ file:// で開いたときに起動できること。あわせて CSP の存在と、起動時の通信を確かめる
+// 5つのアプリを、実際の使い方と同じ file:// で開いたときに起動できること。あわせて CSP の存在と、起動時の通信を確かめる
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 import { appPath } from './helpers.mjs';
@@ -13,6 +13,7 @@ const apps = [
   { app: 'html-studio', ready: '.placeholder', boot: [`${CDN}dompurify@3.4.17/dist/purify.min.js`] },
   { app: 'macro-schedule-editor', ready: 'table thead', boot: [] },
   { app: 'org-chart-editor', ready: '.empty', boot: [] },
+  { app: 'diagram-studio', ready: '#empty h1', boot: [] },
 ];
 for (const { app, ready, boot } of apps) {
   const html = fs.readFileSync(appPath(app), 'utf8');

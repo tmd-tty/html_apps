@@ -1,0 +1,1491 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagram Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236d4fc2'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='2.2' stroke-linejoin='round'%3E%3Crect x='5' y='6' width='10' height='7' rx='1.5'/%3E%3Crect x='17' y='19' width='10' height='7' rx='1.5'/%3E%3Cpath d='M10 13v9.5h6'/%3E%3C/g%3E%3Cpath fill='%23fff' d='M15.5 20l3 2.5-3 2.5z'/%3E%3C/svg%3E">
+<style>
+[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f4f5f7;--panel:#ffffff;--panel2:#eceef2;--line:#dcdfe6;--text:#1f2430;--muted:#667085;
+  --accent:#6d4fc2;--accent-soft:#ece8fb;--danger:#b42318;--hover:#e6e8ee;--canvas:#e9ebef;
+}
+[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#15181e;--panel:#1c2027;--panel2:#242933;--line:#323844;--text:#e3e6ec;--muted:#98a1b2;
+  --accent:#a68df0;--accent-soft:#2e2650;--danger:#f97066;--hover:#2b313c;--canvas:#101318;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);overflow:hidden;font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;display:grid;grid-template-rows:44px minmax(0,1fr)}
+button,input,select,textarea{font:inherit;color:inherit}
+svg.i{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block}
+header{display:flex;align-items:center;gap:2px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--line);min-width:0}
+.brand{font-weight:700;margin:0 12px 0 6px;white-space:nowrap}.brand b{color:var(--accent)}
+.tb{height:32px;min-width:32px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:0;border-radius:6px;background:none;cursor:pointer;white-space:nowrap}
+.tb:hover:not(:disabled){background:var(--hover)}
+.tb:disabled{opacity:.35;cursor:default}
+.tb.on{background:var(--accent-soft);color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.sep{width:1px;height:20px;background:var(--line);margin:0 5px;flex:none}
+.grow{flex:1}
+#zoomLabel{min-width:52px;font-variant-numeric:tabular-nums}
+main{display:flex;min-height:0;min-width:0}
+#sidebar{width:var(--sidebar-w,250px);flex:none;background:var(--panel);display:flex;flex-direction:column;min-height:0}
+body.no-sidebar #sidebar,body.no-sidebar #resizer{display:none}
+#resizer{width:5px;flex:none;cursor:col-resize;background:var(--line);background-clip:content-box;padding:0 2px}
+#resizer:hover{background:var(--accent);padding:0 1px}
+.side-head{height:34px;display:flex;align-items:center;gap:2px;padding:0 6px 0 12px;font-size:11px;font-weight:700;color:var(--muted);border-bottom:1px solid var(--line)}
+.side-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side-head .tb{height:26px;min-width:26px;padding:0}
+#tree{flex:1;overflow:auto;padding:4px 0 24px;min-height:0;user-select:none}
+#tree.drop-root{box-shadow:inset 0 0 0 2px var(--accent)}
+.row{display:flex;align-items:center;gap:5px;height:26px;padding-right:8px;cursor:pointer;white-space:nowrap}
+.row:hover{background:var(--hover)}
+.row.sel{background:var(--accent-soft);color:var(--accent)}
+.row.drop{box-shadow:inset 0 0 0 2px var(--accent)}
+.row.other{color:var(--muted)}
+.row .tw{width:14px;display:flex;justify-content:center;color:var(--muted)}
+.row .tw svg{width:12px;height:12px;transition:transform .1s}
+.row.open .tw svg{transform:rotate(90deg)}
+.row svg.i{width:15px;height:15px}
+.row .nm{overflow:hidden;text-overflow:ellipsis}
+.ic-dir{color:#c99a2e}.ic-dg{color:var(--accent)}.ic-file{color:var(--muted)}
+.side-empty{padding:18px 14px;color:var(--muted)}
+#workspace{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+#tabs{display:flex;height:34px;flex:none;background:var(--panel2);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:thin}
+.tab{display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;max-width:240px;border-right:1px solid var(--line);cursor:pointer;color:var(--muted);flex:none}
+.tab.on{background:var(--panel);color:var(--text);box-shadow:inset 0 2px 0 var(--accent)}
+.tab .tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;visibility:hidden}
+.tab.dirty .dot{visibility:visible}
+.tab .x{width:20px;height:20px;padding:0;border:0;background:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:inherit}
+.tab .x:hover{background:var(--hover)}
+.tab .x svg{width:12px;height:12px}
+#body{flex:1;display:flex;min-height:0}
+/* 図形の一覧 */
+#palette{width:150px;flex:none;overflow:auto;background:var(--panel);border-right:1px solid var(--line);padding:6px 8px 20px}
+#palette h3{font-size:11px;color:var(--muted);margin:10px 2px 4px}
+.pal{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.pal button{height:40px;padding:3px;border:1px solid transparent;border-radius:6px;background:none;cursor:grab;display:flex;align-items:center;justify-content:center}
+.pal button:hover{background:var(--hover);border-color:var(--line)}
+.pal svg{width:34px;height:28px;overflow:visible}
+/* キャンバス */
+#stage{flex:1;position:relative;min-width:0;background:var(--canvas);overflow:hidden}
+#canvas:focus,#canvas:focus-visible{outline:0}
+#canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;user-select:none}
+#canvas.panning{cursor:grabbing}
+#canvas.space{cursor:grab}
+#editor{position:absolute;z-index:5;margin:0;padding:4px;border:2px solid var(--accent);border-radius:4px;background:#fff;color:#1f2430;resize:none;outline:0;text-align:center;overflow:hidden;line-height:1.3}
+.placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);text-align:center;padding:24px}
+.placeholder h1{margin:0;font-size:22px;color:var(--text)}
+.placeholder p{margin:0;max-width:460px}
+/* 書式パネル */
+#props{width:220px;flex:none;overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:10px 12px 20px}
+#props h3{font-size:12px;margin:12px 0 6px;color:var(--muted)}
+#props h3:first-child{margin-top:0}
+#props .none{color:var(--muted)}
+.sw{display:flex;flex-wrap:wrap;gap:5px}
+.sw button{width:22px;height:22px;padding:0;border:1px solid var(--line);border-radius:5px;cursor:pointer}
+.sw button.on{outline:2px solid var(--text);outline-offset:1px}
+.sw button.nofill{background:linear-gradient(135deg,#fff 45%,#e5484d 47%,#e5484d 53%,#fff 55%)}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{height:28px;padding:0 9px;border:1px solid var(--line);border-radius:5px;background:var(--panel);cursor:pointer}
+.seg button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+#props label.ck{display:flex;align-items:center;gap:6px;margin-top:6px}
+#props select{width:100%;height:30px;border:1px solid var(--line);border-radius:5px;background:var(--panel);padding:0 6px}
+#props .btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+#props .btns button{flex:1;height:28px;border:1px solid var(--line);border-radius:5px;background:var(--panel);cursor:pointer;white-space:nowrap}
+#props .btns button:hover{background:var(--hover)}
+#props input.txt{width:100%;height:30px;border:1px solid var(--line);border-radius:5px;background:var(--bg);padding:0 8px;min-width:0}
+#props input.txt:focus{border-color:var(--accent);outline:0}
+.dlist{display:flex;flex-direction:column;gap:8px}
+.drow{display:flex;flex-direction:column;gap:3px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.drow select{height:26px!important;font-size:12px}
+.dline{display:flex;gap:4px}
+.dline .x{flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:5px;background:var(--panel);cursor:pointer}
+.dline .x:hover{color:var(--danger);border-color:var(--danger)}
+#props p.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+/* メニュー・モーダル・通知 */
+#ctx{position:fixed;z-index:40;min-width:200px;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:4px;box-shadow:0 8px 28px rgba(0,0,0,.28)}
+#ctx button{display:flex;align-items:center;gap:9px;width:100%;padding:6px 10px;border:0;border-radius:4px;background:none;cursor:pointer;text-align:left}
+#ctx button:hover,#ctx button:focus-visible{background:var(--hover);outline:0}
+#ctx button.danger{color:var(--danger)}
+#ctx button kbd{margin-left:auto;color:var(--muted);font:11px system-ui,sans-serif}
+#ctx hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.overlay{position:fixed;inset:0;z-index:50;background:rgba(10,12,16,.5);display:flex;align-items:flex-start;justify-content:center;padding:9vh 16px 16px}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(440px,100%);max-height:100%;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.modal h2{font-size:15px;margin:0;padding:14px 18px 10px}
+.modal .mb{padding:2px 18px 12px;overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.modal .mf{padding:10px 18px 14px;display:flex;justify-content:flex-end;gap:8px}
+.modal label{color:var(--muted);font-size:12px}
+.modal input[type=text]{width:100%;height:34px;padding:0 10px;font-size:14px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;outline:0}
+.modal input[type=text]:focus{border-color:var(--accent)}
+.btn{height:32px;padding:0 14px;border:1px solid var(--line);border-radius:6px;background:var(--panel);cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--panel);font-weight:700}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.sc-table{width:100%;border-collapse:collapse}
+.sc-table td{padding:5px 4px;border-bottom:1px solid var(--line)}
+.sc-table td:last-child{text-align:right;white-space:nowrap}
+kbd{font:12px ui-monospace,Menlo,Consolas,monospace;background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+#toast div{background:var(--text);color:var(--panel);padding:7px 14px;border-radius:7px;max-width:70vw;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+#toast div.err{background:var(--danger);color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Diagram <b>Studio</b></div>
+  <button class="tb" data-cmd="sidebar"></button>
+  <button class="tb" data-cmd="openFolder"></button>
+  <button class="tb" data-cmd="save"></button>
+  <i class="sep"></i>
+  <button class="tb" data-cmd="undo"></button>
+  <button class="tb" data-cmd="redo"></button>
+  <i class="sep"></i>
+  <button class="tb" data-cmd="front"></button>
+  <button class="tb" data-cmd="back"></button>
+  <button class="tb" data-cmd="remove"></button>
+  <i class="sep"></i>
+  <button class="tb" data-cmd="zoomOut"></button>
+  <span id="zoomLabel" class="tb" aria-live="polite">100%</span>
+  <button class="tb" data-cmd="zoomIn"></button>
+  <button class="tb" data-cmd="fit"></button>
+  <button class="tb" data-cmd="snap"></button>
+  <span class="grow"></span>
+  <button class="tb" data-cmd="svg"></button>
+  <button class="tb" data-cmd="png"></button>
+  <button class="tb" data-cmd="theme"></button>
+  <button class="tb" data-cmd="help"></button>
+</header>
+<main>
+  <aside id="sidebar">
+    <div class="side-head"><span id="rootName">エクスプローラー</span><button class="tb" id="refresh" title="フォルダを再読み込み"></button></div>
+    <div id="tree" tabindex="-1"></div>
+  </aside>
+  <div id="resizer" role="separator" aria-orientation="vertical" title="ドラッグで幅を変更"></div>
+  <section id="workspace">
+    <div id="tabs"></div>
+    <div id="body">
+      <nav id="palette" aria-label="図形"></nav>
+      <div id="stage">
+        <svg id="canvas" tabindex="0" aria-label="キャンバス"></svg>
+        <textarea id="editor" hidden spellcheck="false" aria-label="文字の編集"></textarea>
+        <div class="placeholder" id="empty"></div>
+      </div>
+      <aside id="props" aria-label="書式"></aside>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+<script>
+(() => {
+'use strict';
+
+/* ---------- 基本ユーティリティ ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+const NS = 'http://www.w3.org/2000/svg'; // SVG の名前空間の識別子で、通信には使わない
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('dgs.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('dgs.' + k, JSON.stringify(v)); } catch { /* 保存できなくても動作は続ける */ } },
+};
+const ICONS = {
+  menu: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  folderOpen: '<path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/><path d="M3 19l2.4-8.5A2 2 0 0 1 7.3 9H21l-2.3 8.5a2 2 0 0 1-2 1.5H5a2 2 0 0 1-2-2V8"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  save: '<path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h8V3M7 21v-7h10v7"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+  front: '<rect x="8" y="8" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/>',
+  back: '<rect x="4" y="4" width="12" height="12" rx="2"/><path d="M20 8v11a1 1 0 0 1-1 1H8"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  zoomIn: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6M11 8v6"/>',
+  zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6"/>',
+  fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  grid: '<path d="M4 4h16v16H4zM4 10h16M4 15h16M10 4v16M15 4v16"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.7"/><path d="M21 16l-5-5L6 20"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .8c0 1.7-2.5 2.2-2.5 4M12 17.2v.1"/>',
+  chevron: '<path d="M9 5l7 7-7 7"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.5-3.5L3 10M3 4v6h6M4 13a8 8 0 0 0 14.5 3.5L21 14M21 20v-6h-6"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  diagram: '<rect x="3" y="4" width="8" height="6" rx="1"/><rect x="13" y="14" width="8" height="6" rx="1"/><path d="M7 10v7h6"/>',
+  plusFile: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 12v5M9.5 14.5h5"/>',
+  plusDir: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 11v5M9.5 13.5h5"/>',
+  rename: '<path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+};
+const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
+function toast(msg, err) { const d = el('div', err ? 'err' : '', msg); $('#toast').append(d); setTimeout(() => d.remove(), err ? 6000 : 2800); }
+function fail(e) {
+  console.error(e);
+  const m = e && e.name === 'NotAllowedError' ? 'フォルダへのアクセス権限がありません。フォルダを開き直してください。' : (e && e.message) || String(e);
+  toast('エラー: ' + m, true);
+}
+const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { if (e && e.name === 'AbortError') return undefined; fail(e); return undefined; } };
+const z2 = (n) => String(n).padStart(2, '0');
+const datePrefix = () => { const d = new Date(); return `${d.getFullYear()}${z2(d.getMonth() + 1)}${z2(d.getDate())}_`; };
+
+/* ---------- モーダル ---------- */
+const state = {
+  root: null, tabs: [], active: null, expanded: new Set(), modal: null, drag: null,
+  theme: store.get('theme', matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+  snap: store.get('snap', true), clipboard: null, pasteCount: 0,
+};
+function openModal({ title, body, footer, onClose }) {
+  const prev = document.activeElement;
+  const ov = el('div', 'overlay'), m = el('div', 'modal');
+  m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true'); m.setAttribute('aria-label', title);
+  const mb = el('div', 'mb'); mb.append(...[].concat(body || []));
+  m.append(el('h2', '', title), mb);
+  if (footer) { const f = el('div', 'mf'); f.append(...footer); m.append(f); }
+  ov.append(m);
+  let closed = false;
+  const close = (v) => {
+    if (closed) return; closed = true;
+    ov.remove(); document.removeEventListener('keydown', onKey, true);
+    if (state.modal === close) state.modal = null;
+    if (prev && prev.focus) prev.focus();
+    if (onClose) onClose(v);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); } };
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(null); });
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(ov);
+  state.modal = close;
+  return close;
+}
+const button = (label, cls, onClick) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = onClick; return b; };
+function ask({ title, label, value = '', caret }) {
+  return new Promise((res) => {
+    const inp = el('input'); inp.type = 'text'; inp.value = value; inp.setAttribute('aria-label', label || title);
+    let close;
+    const ok = () => close(inp.value);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ok(); } });
+    close = openModal({ title, body: label ? [el('label', '', label), inp] : [inp], onClose: res, footer: [button('キャンセル', '', () => close(null)), button('OK', 'primary', ok)] });
+    inp.focus();
+    const c = caret == null ? value.length : caret;
+    if (caret == null) inp.select(); else inp.setSelectionRange(c, c);
+  });
+}
+function choose({ title, message, buttons }) {
+  return new Promise((res) => {
+    let close;
+    const f = buttons.map((b) => button(b.label, b.kind, () => close(b.value)));
+    close = openModal({ title, body: el('p', '', message), footer: f, onClose: res });
+    f[f.length - 1].focus();
+  });
+}
+
+/* ---------- 図のデータ ---------- */
+/* 図は { nodes: [...], edges: [...] }。nodes の並びが重なり順(後ろほど手前)になる */
+const EXT = '.diagram.json';
+const isDiagram = (name) => name.toLowerCase().endsWith(EXT);
+const GRID = 10;
+const FONT = 'system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif';
+const SHAPES = {
+  rect: { label: '四角', w: 120, h: 60 }, round: { label: '角丸', w: 120, h: 60 }, ellipse: { label: '楕円', w: 120, h: 70 },
+  diamond: { label: 'ひし形(判断)', w: 120, h: 80 }, parallelogram: { label: '平行四辺形(入出力)', w: 130, h: 60 }, cylinder: { label: 'データベース', w: 90, h: 80 },
+  document: { label: '書類', w: 120, h: 70 }, note: { label: '付箋', w: 140, h: 90, fill: '#fff7d6', stroke: '#e3c75b' }, text: { label: '文字', w: 120, h: 40, fill: 'none', stroke: 'none' },
+  frame: { label: 'グループの枠', w: 320, h: 220, fill: '#f7f8fa', stroke: '#9aa3b2', dash: true },
+  server: { label: 'サーバー', w: 64, h: 64, icon: true }, cloud: { label: 'クラウド', w: 72, h: 64, icon: true }, user: { label: '利用者', w: 64, h: 64, icon: true },
+  client: { label: 'PC', w: 64, h: 64, icon: true }, mobile: { label: 'スマートフォン', w: 48, h: 64, icon: true }, storage: { label: 'ストレージ', w: 64, h: 64, icon: true },
+  internet: { label: 'インターネット', w: 64, h: 64, icon: true },
+};
+const PALETTE_GROUPS = [['基本', ['rect', 'round', 'ellipse', 'diamond', 'parallelogram', 'cylinder', 'document', 'note', 'text']], ['構成', ['server', 'cloud', 'user', 'client', 'mobile', 'storage', 'internet', 'cylinder', 'frame']]];
+/* アイコンは 24×24 の座標で描き、図形の大きさに合わせて拡大する */
+const ICON_PATHS = {
+  server: 'M4 3h16v6H4zM4 9h16v6H4zM4 15h16v6H4zM7 6h.01M7 12h.01M7 18h.01M11 6h6M11 12h6M11 18h6',
+  cloud: 'M7 19h10.5a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.6 9.2 4.9 4.9 0 0 0 7 19z',
+  user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0z',
+  client: 'M3 4h18v12H3zM8 20h8M12 16v4',
+  mobile: 'M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM11 18h2',
+  storage: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+  internet: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z',
+};
+const FILLS = ['#ffffff', '#f4f5f7', '#e6f2f0', '#e3eefb', '#ece8fb', '#fde8ef', '#fdecdc', '#fff7d6', '#e5f4e3', 'none'];
+const STROKES = ['#4b5565', '#1f2430', '#3d7f79', '#2a70c8', '#6d3fc0', '#c4513a', '#b8741f', '#2e9e5b', '#9aa3b2', 'none'];
+const TEXTS = ['#1f2430', '#4b5565', '#3d7f79', '#2a70c8', '#6d3fc0', '#c4513a', '#b8741f', '#2e9e5b', '#ffffff'];
+const SIZES = [11, 12, 14, 16, 20, 24, 32];
+const DEFAULT_STYLE = { fill: '#ffffff', stroke: '#4b5565', color: '#1f2430', size: 14, dash: false, bold: false };
+const DEFAULT_EDGE = { stroke: '#4b5565', dash: false, width: 1.6, route: 'elbow', arrowStart: false, arrowEnd: true };
+let idSeq = 0;
+const newId = (p) => `${p}${Date.now().toString(36)}${(idSeq++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+const emptyDoc = () => ({ nodes: [], edges: [] });
+function makeNode(type, x, y) {
+  const s = SHAPES[type];
+  const style = { ...DEFAULT_STYLE };
+  if (s.fill) style.fill = s.fill;
+  if (s.stroke) style.stroke = s.stroke;
+  if (s.dash) style.dash = true;
+  if (s.icon) style.fill = 'none';
+  return { id: newId('n'), type, x, y, w: s.w, h: s.h, text: s.icon || type === 'frame' ? s.label : '', style };
+}
+
+/* ---------- ファイルの検証 ---------- */
+const COLOR_RE = /^(#[0-9a-f]{6}|none)$/i;
+const finite = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+/** 内容を確かめてから図を返す。不正な場合は例外にして、開いているタブを壊さない */
+function parseDiagram(text) {
+  let d;
+  try { d = JSON.parse(text.replace(/^﻿/, '')); } catch { throw new Error('JSON として読み込めません'); }
+  if (!d || !Array.isArray(d.nodes) || !Array.isArray(d.edges)) throw new Error('図のファイルではありません(nodes / edges がありません)');
+  if (d.nodes.length > 5000 || d.edges.length > 10000) throw new Error('図形が多すぎます');
+  const ids = new Set();
+  const style = (s, base) => {
+    const o = { ...base };
+    if (s && typeof s === 'object') {
+      for (const k of ['fill', 'stroke', 'color']) if (typeof s[k] === 'string' && COLOR_RE.test(s[k]) && k in o) o[k] = s[k].toLowerCase();
+      if ('size' in o && finite(s.size, 6, 96)) o.size = s.size;
+      if ('width' in o && finite(s.width, 0.5, 12)) o.width = s.width;
+      for (const k of ['dash', 'bold', 'arrowStart', 'arrowEnd']) if (k in o && typeof s[k] === 'boolean') o[k] = s[k];
+      if ('route' in o && (s.route === 'straight' || s.route === 'elbow')) o.route = s.route;
+    }
+    return o;
+  };
+  const nodes = d.nodes.map((n, i) => {
+    if (!n || typeof n !== 'object' || typeof n.id !== 'string' || !n.id || ids.has(n.id)) throw new Error(`${i + 1} 件目の図形の ID が不正です`);
+    if (!Object.hasOwn(SHAPES, n.type)) throw new Error(`${i + 1} 件目の図形の種類が不正です`);
+    if (!finite(n.x, -1e6, 1e6) || !finite(n.y, -1e6, 1e6) || !finite(n.w, 4, 1e5) || !finite(n.h, 4, 1e5)) throw new Error(`${i + 1} 件目の図形の位置や大きさが不正です`);
+    ids.add(n.id);
+    return { id: n.id, type: n.type, x: n.x, y: n.y, w: n.w, h: n.h, text: typeof n.text === 'string' ? n.text.slice(0, 5000) : '', style: style(n.style, makeNode(n.type, 0, 0).style) };
+  });
+  const eids = new Set();
+  const SIDES = ['top', 'right', 'bottom', 'left'];
+  const edges = d.edges.map((e, i) => {
+    if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !e.id || eids.has(e.id) || ids.has(e.id)) throw new Error(`${i + 1} 件目の線の ID が不正です`);
+    if (!ids.has(e.from) || !ids.has(e.to) || e.from === e.to) throw new Error(`${i + 1} 件目の線のつなぎ先が不正です`);
+    eids.add(e.id);
+    if (e.data != null && (!Array.isArray(e.data) || e.data.length > 100 || e.data.some((x) => !x || typeof x.name !== 'string'))) throw new Error(`${i + 1} 件目の線のデータが不正です`);
+    const data = (e.data || []).map((x) => ({ name: x.name.slice(0, 500), dir: x.dir === 'backward' ? 'backward' : 'forward' })).filter((x) => x.name.trim());
+    const o = { id: e.id, from: e.from, to: e.to, text: typeof e.text === 'string' ? e.text.slice(0, 2000) : '', data, style: style(e.style, { ...DEFAULT_EDGE }) };
+    if (SIDES.includes(e.fromSide)) o.fromSide = e.fromSide;
+    if (SIDES.includes(e.toSide)) o.toSide = e.toSide;
+    return o;
+  });
+  return { nodes, edges };
+}
+const serialize = (doc) => JSON.stringify({ app: 'Diagram Studio', version: 1, nodes: doc.nodes, edges: doc.edges }, null, 2) + '\n';
+
+/* ---------- 形と線の計算 ---------- */
+const measureCtx = document.createElement('canvas').getContext('2d');
+/** 枠の幅に合わせて折り返す。日本語は文字単位、英語は単語単位で折る */
+function wrapText(text, width, size, bold) {
+  measureCtx.font = `${bold ? '700 ' : ''}${size}px ${FONT}`;
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    if (!para) { out.push(''); continue; }
+    const tokens = para.match(/[\x21-\x7e]+|\s+|./gu) || [];
+    let line = '';
+    for (const t of tokens) {
+      const next = line + t;
+      if (line && measureCtx.measureText(next).width > width) {
+        out.push(line.trimEnd());
+        line = t.trimStart();
+        while (measureCtx.measureText(line).width > width && line.length > 1) { // 長い英単語は文字単位で切る
+          let k = line.length; while (k > 1 && measureCtx.measureText(line.slice(0, k)).width > width) k--;
+          out.push(line.slice(0, k)); line = line.slice(k);
+        }
+      } else line = next;
+    }
+    out.push(line.trimEnd());
+  }
+  return out;
+}
+const center = (n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
+function anchor(n, side) {
+  const c = center(n);
+  if (side === 'top') return { x: c.x, y: n.y };
+  if (side === 'bottom') return { x: c.x, y: n.y + n.h + (SHAPES[n.type].icon && n.text ? labelHeight(n) : 0) };
+  if (side === 'left') return { x: n.x, y: c.y };
+  return { x: n.x + n.w, y: c.y };
+}
+const OPPOSITE = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
+/** つなぐ辺が指定されていなければ、相手の方向から決める */
+function sides(a, b, e) {
+  const ca = center(a), cb = center(b);
+  const dx = (cb.x - ca.x) / ((a.w + b.w) / 2 || 1), dy = (cb.y - ca.y) / ((a.h + b.h) / 2 || 1);
+  const auto = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'bottom' : 'top');
+  const from = e.fromSide || auto;
+  let to = e.toSide;
+  if (!to) {
+    if (e.fromSide) {
+      const back = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'left' : 'right') : (dy >= 0 ? 'top' : 'bottom');
+      to = back;
+    } else to = OPPOSITE[auto];
+  }
+  return [from, to];
+}
+const horizontal = (s) => s === 'left' || s === 'right';
+function edgePoints(doc, e) {
+  const a = nodeById(doc, e.from), b = nodeById(doc, e.to);
+  if (!a || !b) return null;
+  const [sa, sb] = sides(a, b, e), p1 = anchor(a, sa), p2 = anchor(b, sb);
+  if (e.style.route === 'straight') return [p1, p2];
+  // ほぼ同じ高さ(幅)なら、段差を作らずまっすぐ引く
+  if (horizontal(sa) && horizontal(sb) && Math.abs(p1.y - p2.y) < 8 && p1.y > b.y && p1.y < b.y + b.h) return [p1, { x: p2.x, y: p1.y }];
+  if (!horizontal(sa) && !horizontal(sb) && Math.abs(p1.x - p2.x) < 8 && p1.x > b.x && p1.x < b.x + b.w) return [p1, { x: p1.x, y: p2.y }];
+  if (horizontal(sa) && horizontal(sb)) { const mx = (p1.x + p2.x) / 2; return [p1, { x: mx, y: p1.y }, { x: mx, y: p2.y }, p2]; }
+  if (!horizontal(sa) && !horizontal(sb)) { const my = (p1.y + p2.y) / 2; return [p1, { x: p1.x, y: my }, { x: p2.x, y: my }, p2]; }
+  return horizontal(sa) ? [p1, { x: p2.x, y: p1.y }, p2] : [p1, { x: p1.x, y: p2.y }, p2];
+}
+/** 折れ線の長さの中点 */
+function midpoint(pts) {
+  const segs = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i].x, p.y - pts[i].y)), total = segs.reduce((a, b) => a + b, 0);
+  let left = total / 2;
+  for (let i = 0; i < segs.length; i++) {
+    if (left <= segs[i] || i === segs.length - 1) { const t = segs[i] ? left / segs[i] : 0; return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * t, y: pts[i].y + (pts[i + 1].y - pts[i].y) * t, i }; }
+    left -= segs[i];
+  }
+  return { ...pts[0], i: 0 };
+}
+function arrowHead(from, to, color) {
+  const a = Math.atan2(to.y - from.y, to.x - from.x), L = 11, W = 5.5;
+  const bx = to.x - L * Math.cos(a), by = to.y - L * Math.sin(a);
+  const pts = [[to.x, to.y], [bx + W * Math.sin(a), by - W * Math.cos(a)], [bx - W * Math.sin(a), by + W * Math.cos(a)]];
+  return `<polygon points="${pts.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(' ')}" fill="${color}"/>`;
+}
+const nodeById = (doc, id) => doc.nodes.find((n) => n.id === id);
+const labelHeight = (n) => wrapText(n.text, Math.max(n.w + 40, 80), n.style.size, n.style.bold).length * n.style.size * 1.3 + 4;
+/** 図形が占める範囲(アイコンの下の名前を含む) */
+function nodeBox(n) {
+  if (SHAPES[n.type].icon && n.text) { const lw = Math.max(n.w + 40, 80); return { x: Math.min(n.x, n.x + n.w / 2 - lw / 2), y: n.y, w: Math.max(n.w, lw), h: n.h + labelHeight(n) }; }
+  return { x: n.x, y: n.y, w: n.w, h: n.h };
+}
+
+/* ---------- SVG の組み立て(画面と書き出しで共通) ---------- */
+function shapeSvg(n) {
+  const { w, h } = n, s = n.style, dash = s.dash ? ' stroke-dasharray="6 4"' : '';
+  const paint = `fill="${s.fill}" stroke="${s.stroke}" stroke-width="1.6"${dash}`;
+  switch (n.type) {
+    case 'round': return `<rect width="${w}" height="${h}" rx="${Math.min(12, h / 2)}" ${paint}/>`;
+    case 'ellipse': return `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" ${paint}/>`;
+    case 'diamond': return `<polygon points="${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}" ${paint}/>`;
+    case 'parallelogram': { const k = Math.min(20, w * 0.2); return `<polygon points="${k},0 ${w},0 ${w - k},${h} 0,${h}" ${paint}/>`; }
+    case 'cylinder': { const e = Math.min(12, h * 0.18); return `<path d="M0 ${e}v${h - 2 * e}a${w / 2} ${e} 0 0 0 ${w} 0v${-(h - 2 * e)}" ${paint}/><ellipse cx="${w / 2}" cy="${e}" rx="${w / 2}" ry="${e}" ${paint}/>`; }
+    case 'document': return `<path d="M0 0H${w}V${h - 8}Q${w * 0.75} ${h - 18} ${w / 2} ${h - 8}T0 ${h - 8}Z" ${paint}/>`;
+    case 'note': return `<path d="M0 0H${w - 14}L${w} 14V${h}H0Z" ${paint}/><path d="M${w - 14} 0V14H${w}" fill="none" stroke="${s.stroke}" stroke-width="1.2"/>`;
+    case 'text': return `<rect width="${w}" height="${h}" fill="${s.fill === 'none' ? 'transparent' : s.fill}" stroke="${s.stroke}"${dash}/>`;
+    case 'frame': return `<rect width="${w}" height="${h}" rx="6" ${paint}/>`;
+    default:
+      if (SHAPES[n.type].icon) {
+        const k = Math.min(w, h) / 24, ox = (w - 24 * k) / 2, oy = (h - 24 * k) / 2, col = s.stroke === 'none' ? '#4b5565' : s.stroke;
+        return `<rect width="${w}" height="${h}" fill="${s.fill === 'none' ? 'transparent' : s.fill}" stroke="none"/><path d="${ICON_PATHS[n.type]}" transform="translate(${ox} ${oy}) scale(${k})" fill="none" stroke="${col}" stroke-width="${(1.6 / k).toFixed(3)}" vector-effect="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+      }
+      return `<rect width="${w}" height="${h}" rx="2" ${paint}/>`;
+  }
+}
+function textSvg(n) {
+  if (!n.text) return '';
+  const s = n.style, lh = s.size * 1.3, weight = s.bold ? ' font-weight="700"' : '', attrs = `font-size="${s.size}" fill="${s.color}"${weight}`;
+  if (SHAPES[n.type].icon) {
+    const lw = Math.max(n.w + 40, 80), lines = wrapText(n.text, lw, s.size, s.bold);
+    return `<text x="${n.w / 2}" y="${n.h + 4}" text-anchor="middle" dominant-baseline="hanging" ${attrs}>${lines.map((l, i) => `<tspan x="${n.w / 2}" dy="${i ? lh : 0}">${esc(l) || ' '}</tspan>`).join('')}</text>`;
+  }
+  if (n.type === 'frame') {
+    const lines = wrapText(n.text, n.w - 16, s.size, s.bold);
+    return `<text x="8" y="8" dominant-baseline="hanging" font-weight="700" font-size="${s.size}" fill="${s.color}">${lines.map((l, i) => `<tspan x="8" dy="${i ? lh : 0}">${esc(l) || ' '}</tspan>`).join('')}</text>`;
+  }
+  const pad = n.type === 'diamond' ? n.w * 0.18 : n.type === 'parallelogram' ? Math.min(20, n.w * 0.2) + 4 : 8;
+  const lines = wrapText(n.text, Math.max(10, n.w - pad * 2), s.size, s.bold), y0 = n.h / 2 - ((lines.length - 1) * lh) / 2;
+  return `<text x="${n.w / 2}" y="${y0}" text-anchor="middle" dominant-baseline="central" ${attrs}>${lines.map((l, i) => `<tspan x="${n.w / 2}" dy="${i ? lh : 0}">${esc(l) || ' '}</tspan>`).join('')}</text>`;
+}
+function nodeSvg(n, interactive) {
+  const attrs = interactive ? ` data-node="${esc(n.id)}"` : '';
+  return `<g transform="translate(${n.x} ${n.y})"${attrs}>${shapeSvg(n)}${textSvg(n)}</g>`;
+}
+function edgeSvg(doc, e, interactive, highlight) {
+  const pts = edgePoints(doc, e);
+  if (!pts) return '';
+  const s = e.style, color = highlight || s.stroke, d = 'M' + pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('L');
+  let out = `<g${interactive ? ` data-edge="${esc(e.id)}"` : ''}>`;
+  if (interactive) out += `<path d="${d}" fill="none" stroke="transparent" stroke-width="14"/>`;
+  out += `<path d="${d}" fill="none" stroke="${color}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="6 4"' : ''} stroke-linejoin="round"/>`;
+  if (s.arrowEnd) out += arrowHead(pts[pts.length - 2], pts[pts.length - 1], color);
+  if (s.arrowStart) out += arrowHead(pts[1], pts[0], color);
+  const card = edgeCard(e, pts);
+  if (card) out += card.svg;
+  return out + '</g>';
+}
+/**
+ * 線の中ほどに置く札。ラベル(プロトコルなど)と、やりとりするデータの一覧を描く。
+ * データの矢印は、札の位置での線の向きに合わせる(順方向は from → to)
+ */
+const REVERSE = { '→': '←', '←': '→', '↓': '↑', '↑': '↓' };
+function edgeCard(e, pts) {
+  const data = e.data || [];
+  if (!e.text && !data.length) return null;
+  const m = midpoint(pts), a = pts[m.i], b = pts[m.i + 1] || a, dx = b.x - a.x, dy = b.y - a.y;
+  const fwd = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? '→' : '←') : (dy >= 0 ? '↓' : '↑');
+  const lh = 15.6, pad = 5, indent = 16, color = e.style.stroke;
+  const head = e.text ? wrapText(e.text, 200, 12, data.length > 0) : [];
+  measureCtx.font = `${data.length ? '700 ' : ''}12px ${FONT}`;
+  let w = Math.max(0, ...head.map((l) => measureCtx.measureText(l).width));
+  const rows = data.map((d) => ({ glyph: d.dir === 'backward' ? REVERSE[fwd] : fwd, lines: wrapText(d.name, 200 - indent, 12, false) }));
+  measureCtx.font = `12px ${FONT}`;
+  for (const r of rows) for (const l of r.lines) w = Math.max(w, indent + measureCtx.measureText(l).width);
+  const gap = head.length && rows.length ? 5 : 0, n = head.length + rows.reduce((x, r) => x + r.lines.length, 0);
+  w += pad * 2; const h = n * lh + pad * 2 + gap - (data.length ? 0 : 2);
+  const x = m.x - w / 2, y = m.y - h / 2, f = (v) => v.toFixed(1);
+  let svg = `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="3" fill="#ffffff"${data.length ? ' stroke="#c9ced8"' : ''}/>`;
+  let cy = y + pad + lh / 2 - (data.length ? 0 : 1);
+  for (const l of head) {
+    svg += data.length
+      ? `<text x="${f(x + pad)}" y="${f(cy)}" dominant-baseline="central" font-size="12" font-weight="700" fill="#1f2430">${esc(l) || ' '}</text>`
+      : `<text x="${f(m.x)}" y="${f(cy)}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#1f2430">${esc(l) || ' '}</text>`;
+    cy += lh;
+  }
+  if (gap) { svg += `<path d="M${f(x + 1)} ${f(cy - lh / 2 + gap / 2)}H${f(x + w - 1)}" stroke="#e1e4ea"/>`; cy += gap; }
+  for (const r of rows) {
+    svg += `<text x="${f(x + pad)}" y="${f(cy)}" dominant-baseline="central" font-size="12" font-weight="700" fill="${color}">${r.glyph}</text>`;
+    for (const l of r.lines) { svg += `<text x="${f(x + pad + indent)}" y="${f(cy)}" dominant-baseline="central" font-size="12" fill="#1f2430">${esc(l) || ' '}</text>`; cy += lh; }
+  }
+  return { x, y, w, h, svg };
+}
+/** 枠は線より奥、それ以外の図形は線より手前に描く */
+function contentSvg(doc, interactive, sel) {
+  const frames = doc.nodes.filter((n) => n.type === 'frame'), others = doc.nodes.filter((n) => n.type !== 'frame');
+  return frames.map((n) => nodeSvg(n, interactive)).join('')
+    + doc.edges.map((e) => edgeSvg(doc, e, interactive, sel && sel.has(e.id) ? getAccent() : null)).join('')
+    + others.map((n) => nodeSvg(n, interactive)).join('');
+}
+const getAccent = () => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6d4fc2';
+function contentBounds(doc) {
+  if (!doc.nodes.length) return null;
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  const add = (x, y) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); };
+  for (const n of doc.nodes) { const b = nodeBox(n); add(b.x, b.y); add(b.x + b.w, b.y + b.h); }
+  for (const e of doc.edges) { const pts = edgePoints(doc, e); if (pts) pts.forEach((p) => add(p.x, p.y)); const c = pts && edgeCard(e, pts); if (c) { add(c.x, c.y); add(c.x + c.w, c.y + c.h); } }
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+/** 書き出し用の独立した SVG。外部の資源は使わない */
+function exportSvg(doc) {
+  const b = contentBounds(doc) || { x: 0, y: 0, w: 100, h: 60 }, m = 20;
+  const vb = `${(b.x - m).toFixed(1)} ${(b.y - m).toFixed(1)} ${(b.w + m * 2).toFixed(1)} ${(b.h + m * 2).toFixed(1)}`;
+  return `<svg xmlns="${NS}" viewBox="${vb}" width="${Math.ceil(b.w + m * 2)}" height="${Math.ceil(b.h + m * 2)}" font-family='${FONT}'>`
+    + `<rect x="${(b.x - m).toFixed(1)}" y="${(b.y - m).toFixed(1)}" width="${(b.w + m * 2).toFixed(1)}" height="${(b.h + m * 2).toFixed(1)}" fill="#ffffff"/>${contentSvg(doc, false)}</svg>\n`;
+}
+
+/* ---------- 描画 ---------- */
+const canvas = $('#canvas');
+const view = () => state.active.view;
+function renderCanvas() {
+  const t = state.active;
+  $('#empty').hidden = !!t;
+  if (!t) { canvas.innerHTML = ''; renderProps(); paintCommands(); return; }
+  const v = t.view, sel = t.sel, k = v.k;
+  const gs = GRID * k, major = gs * 5;
+  let html = `<defs><pattern id="gridMinor" width="${gs}" height="${gs}" patternUnits="userSpaceOnUse" x="${v.x % gs}" y="${v.y % gs}"><path d="M ${gs} 0 L 0 0 0 ${gs}" fill="none" stroke="#e8eaef" stroke-width="1"/></pattern>`
+    + `<pattern id="gridMajor" width="${major}" height="${major}" patternUnits="userSpaceOnUse" x="${v.x % major}" y="${v.y % major}"><rect width="${major}" height="${major}" fill="url(#gridMinor)"/><path d="M ${major} 0 L 0 0 0 ${major}" fill="none" stroke="#d8dbe2" stroke-width="1"/></pattern></defs>`;
+  html += `<rect width="100%" height="100%" fill="#ffffff"/><rect width="100%" height="100%" fill="url(#gridMajor)"/>`;
+  html += `<g id="world" transform="translate(${v.x} ${v.y}) scale(${k})" font-family='${FONT}'>${contentSvg(t.doc, true, sel)}${selectionSvg(t)}</g>`;
+  if (t.marquee) { const m = t.marquee; html += `<rect x="${Math.min(m.x1, m.x2)}" y="${Math.min(m.y1, m.y2)}" width="${Math.abs(m.x2 - m.x1)}" height="${Math.abs(m.y2 - m.y1)}" fill="${getAccent()}" fill-opacity=".08" stroke="${getAccent()}" stroke-dasharray="4 3"/>`; }
+  canvas.innerHTML = html;
+  $('#zoomLabel').textContent = `${Math.round(k * 100)}%`;
+  renderProps(); paintCommands();
+}
+const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+function handlePos(n, h) {
+  const x = { w: n.x, n: n.x + n.w / 2, s: n.x + n.w / 2, e: n.x + n.w }[h[h.length - 1]] ?? (h.includes('w') ? n.x : n.x + n.w);
+  const y = h.startsWith('n') ? n.y : h.startsWith('s') ? n.y + n.h : n.y + n.h / 2;
+  return { x: h === 'n' || h === 's' ? n.x + n.w / 2 : x, y };
+}
+/** 選択枠、大きさを変えるつまみ、線をつなぐ点 */
+function selectionSvg(t) {
+  const k = t.view.k, acc = getAccent(), r = 4.5 / k, sw = 1.5 / k;
+  let out = '';
+  const selNodes = t.doc.nodes.filter((n) => t.sel.has(n.id));
+  for (const n of selNodes) out += `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" fill="none" stroke="${acc}" stroke-width="${sw}" stroke-dasharray="${4 / k} ${3 / k}" pointer-events="none"/>`;
+  if (selNodes.length === 1 && !t.drag) {
+    const n = selNodes[0];
+    for (const h of HANDLES) { const p = handlePos(n, h); out += `<rect data-handle="${h}" x="${p.x - r}" y="${p.y - r}" width="${r * 2}" height="${r * 2}" fill="#ffffff" stroke="${acc}" stroke-width="${sw}" style="cursor:${h}-resize"/>`; }
+  }
+  const hover = t.hover && nodeById(t.doc, t.hover);
+  const showDots = hover && !t.drag && !(selNodes.length === 1 && selNodes[0] === hover && false);
+  if (showDots || (t.drag && t.drag.kind === 'connect')) {
+    const n = t.drag && t.drag.kind === 'connect' ? t.drag.target && nodeById(t.doc, t.drag.target) : hover;
+    if (n) for (const side of ['top', 'right', 'bottom', 'left']) { const p = anchor(n, side), off = 10 / k, q = { top: [0, -off], bottom: [0, off], left: [-off, 0], right: [off, 0] }[side]; out += `<circle data-connect="${side}" data-of="${esc(n.id)}" cx="${p.x + q[0]}" cy="${p.y + q[1]}" r="${5 / k}" fill="${acc}" fill-opacity=".85" stroke="#fff" stroke-width="${1 / k}" style="cursor:crosshair"/>`; }
+  }
+  if (t.drag && t.drag.kind === 'connect' && t.drag.to) {
+    const a = anchor(nodeById(t.doc, t.drag.from), t.drag.side);
+    out += `<path d="M${a.x} ${a.y}L${t.drag.to.x} ${t.drag.to.y}" stroke="${acc}" stroke-width="${1.6 / k}" stroke-dasharray="${5 / k} ${4 / k}" fill="none" pointer-events="none"/>`;
+  }
+  return out;
+}
+
+/* ---------- 履歴(元に戻す・やり直す) ---------- */
+const HISTORY_MAX = 200;
+const snapshot = (t) => JSON.stringify(t.doc);
+/** 図を変えた後に呼ぶ。直前の状態を積み、未保存かどうかを更新する */
+function commit(t = state.active) {
+  const now = snapshot(t);
+  if (now !== t.snap) {
+    t.past.push(t.snap); if (t.past.length > HISTORY_MAX) t.past.shift();
+    t.future = []; t.snap = now;
+  }
+  afterHistory(t);
+}
+function afterHistory(t) {
+  const d = t.snap !== t.saved;
+  if (d !== t.dirty) { t.dirty = d; renderTabs(); }
+  for (const id of [...t.sel]) if (!nodeById(t.doc, id) && !t.doc.edges.some((e) => e.id === id)) t.sel.delete(id);
+  renderCanvas();
+}
+function restore(from, to) {
+  const t = state.active; if (!t || !from.length) return;
+  to.push(t.snap); t.snap = from.pop(); t.doc = JSON.parse(t.snap);
+  afterHistory(t);
+}
+
+/* ---------- 編集操作 ---------- */
+const snapV = (v, on = state.snap) => (on ? Math.round(v / GRID) * GRID : Math.round(v));
+function addShape(type, x, y) {
+  const t = state.active; if (!t) return null;
+  const n = makeNode(type, 0, 0);
+  n.x = snapV(x - n.w / 2); n.y = snapV(y - n.h / 2);
+  if (type === 'frame') t.doc.nodes.unshift(n); else t.doc.nodes.push(n);
+  t.sel = new Set([n.id]);
+  commit(t);
+  return n;
+}
+function viewCenter() { const r = canvas.getBoundingClientRect(), v = view(); return { x: (r.width / 2 - v.x) / v.k, y: (r.height / 2 - v.y) / v.k }; }
+function deleteSelection() {
+  const t = state.active; if (!t || !t.sel.size) return;
+  t.doc.nodes = t.doc.nodes.filter((n) => !t.sel.has(n.id));
+  const alive = new Set(t.doc.nodes.map((n) => n.id));
+  t.doc.edges = t.doc.edges.filter((e) => !t.sel.has(e.id) && alive.has(e.from) && alive.has(e.to)); // 消した図形につながる線も消す
+  t.sel.clear();
+  commit(t);
+}
+function copySelection() {
+  const t = state.active; if (!t) return false;
+  const nodes = t.doc.nodes.filter((n) => t.sel.has(n.id)); if (!nodes.length) return false;
+  const ids = new Set(nodes.map((n) => n.id));
+  state.clipboard = JSON.parse(JSON.stringify({ nodes, edges: t.doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) }));
+  state.pasteCount = 0;
+  return true;
+}
+function paste() {
+  const t = state.active, c = state.clipboard; if (!t || !c) return;
+  state.pasteCount++;
+  const off = GRID * 2 * state.pasteCount, map = new Map();
+  const nodes = c.nodes.map((n) => { const m = { ...JSON.parse(JSON.stringify(n)), id: newId('n'), x: n.x + off, y: n.y + off }; map.set(n.id, m.id); return m; });
+  const edges = c.edges.map((e) => ({ ...JSON.parse(JSON.stringify(e)), id: newId('e'), from: map.get(e.from), to: map.get(e.to) }));
+  t.doc.nodes.push(...nodes.filter((n) => n.type !== 'frame')); t.doc.nodes.unshift(...nodes.filter((n) => n.type === 'frame'));
+  t.doc.edges.push(...edges);
+  t.sel = new Set(nodes.map((n) => n.id));
+  commit(t);
+}
+function duplicate() { if (copySelection()) paste(); }
+function reorder(front) {
+  const t = state.active; if (!t) return;
+  const picked = t.doc.nodes.filter((n) => t.sel.has(n.id)); if (!picked.length) return;
+  const rest = t.doc.nodes.filter((n) => !t.sel.has(n.id));
+  t.doc.nodes = front ? [...rest, ...picked] : [...picked, ...rest];
+  commit(t);
+}
+function nudge(dx, dy) {
+  const t = state.active; if (!t) return;
+  const nodes = t.doc.nodes.filter((n) => t.sel.has(n.id)); if (!nodes.length) return;
+  for (const n of nodes) { n.x += dx; n.y += dy; }
+  commit(t);
+}
+function setZoom(k, cx, cy) {
+  const t = state.active; if (!t) return;
+  const v = t.view, r = canvas.getBoundingClientRect();
+  if (cx == null) { cx = r.width / 2; cy = r.height / 2; }
+  const nk = Math.max(0.2, Math.min(4, k)), wx = (cx - v.x) / v.k, wy = (cy - v.y) / v.k;
+  v.k = nk; v.x = cx - wx * nk; v.y = cy - wy * nk;
+  renderCanvas();
+}
+function fitView() {
+  const t = state.active; if (!t) return;
+  const b = contentBounds(t.doc), r = canvas.getBoundingClientRect();
+  if (!b) { t.view = { x: r.width / 2, y: r.height / 2, k: 1 }; renderCanvas(); return; }
+  const k = Math.max(0.2, Math.min(1.5, Math.min((r.width - 80) / b.w, (r.height - 80) / b.h)));
+  t.view = { k, x: r.width / 2 - (b.x + b.w / 2) * k, y: r.height / 2 - (b.y + b.h / 2) * k };
+  renderCanvas();
+}
+
+/* ---------- 文字の編集 ---------- */
+const editorEl = $('#editor');
+/** fresh は、文字を置くために作ったばかりの図形。空のまま終えたら取り消す */
+function startEdit(target, fresh = false) {
+  const t = state.active; if (!t) return;
+  const v = t.view, r = canvas.getBoundingClientRect(), sr = $('#stage').getBoundingClientRect();
+  let box, size, item;
+  if (target.type === 'edge') {
+    item = t.doc.edges.find((e) => e.id === target.id); if (!item) return;
+    const pts = edgePoints(t.doc, item), m = midpoint(pts);
+    box = { x: m.x - 80, y: m.y - 18, w: 160, h: 36 }; size = 12;
+  } else {
+    item = nodeById(t.doc, target.id); if (!item) return;
+    size = item.style.size;
+    box = SHAPES[item.type].icon ? { x: item.x + item.w / 2 - 70, y: item.y + item.h + 2, w: 140, h: 40 } : { x: item.x, y: item.y, w: Math.max(item.w, 60), h: Math.max(item.h, 30) };
+  }
+  editorEl.hidden = false;
+  Object.assign(editorEl.style, {
+    left: `${r.left - sr.left + v.x + box.x * v.k}px`, top: `${r.top - sr.top + v.y + box.y * v.k}px`,
+    width: `${box.w * v.k}px`, height: `${box.h * v.k}px`, fontSize: `${size * v.k}px`, fontFamily: FONT,
+    textAlign: item.type === 'frame' ? 'left' : 'center',
+  });
+  editorEl.value = item.text || '';
+  editorEl.dataset.kind = target.type; editorEl.dataset.id = target.id; editorEl.dataset.fresh = fresh ? '1' : '';
+  editorEl.focus(); editorEl.select();
+}
+function endEdit(save) {
+  if (editorEl.hidden) return;
+  const t = state.active, kind = editorEl.dataset.kind, id = editorEl.dataset.id;
+  editorEl.hidden = true;
+  if (!t) { canvas.focus(); return; }
+  const item = kind === 'edge' ? t.doc.edges.find((e) => e.id === id) : nodeById(t.doc, id);
+  if (item && editorEl.dataset.fresh && (!save || !editorEl.value.trim())) {
+    t.doc.nodes = t.doc.nodes.filter((n) => n !== item); t.sel.delete(id);
+    if (snapshot(t) === t.past[t.past.length - 1]) t.snap = t.past.pop(); // 追加した履歴ごと取り消す
+    afterHistory(t);
+  } else if (item && editorEl.dataset.fresh) { item.text = editorEl.value; t.snap = snapshot(t); afterHistory(t); // 追加と入力を1回の操作として履歴に残す
+  } else if (item && save && item.text !== editorEl.value) { item.text = editorEl.value; commit(t); }
+  canvas.focus();
+}
+editorEl.addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Escape') { e.preventDefault(); endEdit(false); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); endEdit(true); }
+  e.stopPropagation();
+});
+editorEl.addEventListener('blur', () => endEdit(true));
+
+/* ---------- キャンバスの操作 ---------- */
+function toWorld(e) { const r = canvas.getBoundingClientRect(), v = view(); return { x: (e.clientX - r.left - v.x) / v.k, y: (e.clientY - r.top - v.y) / v.k }; }
+const hitNode = (target) => { const g = target.closest && target.closest('[data-node]'); return g ? g.dataset.node : null; };
+const hitEdge = (target) => { const g = target.closest && target.closest('[data-edge]'); return g ? g.dataset.edge : null; };
+let spaceDown = false, lastDown = null;
+function initCanvas() {
+  canvas.addEventListener('pointerdown', (e) => {
+    const t = state.active; if (!t) return;
+    endEdit(true);
+    canvas.focus();
+    const p = toWorld(e), target = e.target;
+    if (e.button === 1 || (e.button === 0 && spaceDown)) { t.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: t.view.x, vy: t.view.y }; canvas.classList.add('panning'); canvas.setPointerCapture(e.pointerId); return; }
+    if (e.button !== 0) return;
+    const last = lastDown; lastDown = { time: e.timeStamp, x: e.clientX, y: e.clientY };
+    if (!e.shiftKey && last && e.timeStamp - last.time < 450 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) {
+      lastDown = null; t.drag = { kind: 'double', x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); return; // 離した時に文字の編集を始める
+    }
+    const dot = target.dataset && target.dataset.connect;
+    if (dot) { t.drag = { kind: 'connect', from: target.dataset.of, side: dot, to: p, target: null }; canvas.setPointerCapture(e.pointerId); renderCanvas(); return; }
+    const handle = target.dataset && target.dataset.handle;
+    if (handle) { const n = nodeById(t.doc, [...t.sel][0]); t.drag = { kind: 'resize', id: n.id, handle, start: p, orig: { x: n.x, y: n.y, w: n.w, h: n.h } }; canvas.setPointerCapture(e.pointerId); return; }
+    const nid = hitNode(target), eid = !nid && hitEdge(target);
+    if (nid) {
+      if (e.shiftKey) { if (t.sel.has(nid)) t.sel.delete(nid); else t.sel.add(nid); } else if (!t.sel.has(nid)) t.sel = new Set([nid]);
+      const moving = t.doc.nodes.filter((n) => t.sel.has(n.id));
+      // 枠を動かすときは、枠の中に収まっている図形も一緒に動かす
+      for (const f of moving.filter((n) => n.type === 'frame')) for (const n of t.doc.nodes) if (n !== f && !t.sel.has(n.id) && n.x >= f.x && n.y >= f.y && n.x + n.w <= f.x + f.w && n.y + n.h <= f.y + f.h) moving.push(n);
+      t.drag = { kind: 'move', start: p, orig: moving.map((n) => ({ n, x: n.x, y: n.y })), moved: false };
+      canvas.setPointerCapture(e.pointerId); renderCanvas(); return;
+    }
+    if (eid) { if (e.shiftKey) { if (t.sel.has(eid)) t.sel.delete(eid); else t.sel.add(eid); } else t.sel = new Set([eid]); renderCanvas(); return; }
+    if (!e.shiftKey) t.sel.clear();
+    const r = canvas.getBoundingClientRect();
+    t.marquee = { x1: e.clientX - r.left, y1: e.clientY - r.top, x2: e.clientX - r.left, y2: e.clientY - r.top, base: new Set(t.sel) };
+    t.drag = { kind: 'marquee' };
+    canvas.setPointerCapture(e.pointerId); renderCanvas();
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const t = state.active; if (!t) return;
+    const d = t.drag, p = toWorld(e);
+    if (!d) {
+      const nid = hitNode(e.target) || (e.target.dataset && e.target.dataset.of) || null;
+      if (nid !== t.hover) { t.hover = nid; renderCanvas(); }
+      return;
+    }
+    if (d.kind === 'pan') { t.view.x = d.vx + e.clientX - d.sx; t.view.y = d.vy + e.clientY - d.sy; renderCanvas(); return; }
+    if (d.kind === 'move') {
+      const snap = state.snap && !e.altKey;
+      let dx = p.x - d.start.x, dy = p.y - d.start.y;
+      if (!d.moved && Math.hypot(dx * view().k, dy * view().k) < 3) return;
+      d.moved = true;
+      if (snap && d.orig.length) { const o = d.orig[0]; dx = snapV(o.x + dx) - o.x; dy = snapV(o.y + dy) - o.y; }
+      for (const o of d.orig) { o.n.x = Math.round(o.x + dx); o.n.y = Math.round(o.y + dy); }
+      renderCanvas(); return;
+    }
+    if (d.kind === 'resize') {
+      const n = nodeById(t.doc, d.id), o = d.orig, snap = state.snap && !e.altKey, MIN = 20;
+      let x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
+      if (d.handle.includes('w')) x1 = Math.min(snapV(p.x, snap), x2 - MIN);
+      if (d.handle.includes('e')) x2 = Math.max(snapV(p.x, snap), x1 + MIN);
+      if (d.handle.startsWith('n')) y1 = Math.min(snapV(p.y, snap), y2 - MIN);
+      if (d.handle.startsWith('s')) y2 = Math.max(snapV(p.y, snap), y1 + MIN);
+      Object.assign(n, { x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+      d.moved = true; renderCanvas(); return;
+    }
+    if (d.kind === 'connect') {
+      d.to = p;
+      const under = document.elementFromPoint(e.clientX, e.clientY), nid = under && (hitNode(under) || (under.dataset && under.dataset.of));
+      d.target = nid && nid !== d.from ? nid : null;
+      renderCanvas(); return;
+    }
+    if (d.kind === 'marquee') {
+      const r = canvas.getBoundingClientRect(), m = t.marquee, v = t.view;
+      m.x2 = e.clientX - r.left; m.y2 = e.clientY - r.top;
+      const wx1 = (Math.min(m.x1, m.x2) - v.x) / v.k, wy1 = (Math.min(m.y1, m.y2) - v.y) / v.k, wx2 = (Math.max(m.x1, m.x2) - v.x) / v.k, wy2 = (Math.max(m.y1, m.y2) - v.y) / v.k;
+      t.sel = new Set(m.base);
+      for (const n of t.doc.nodes) if (n.x >= wx1 && n.y >= wy1 && n.x + n.w <= wx2 && n.y + n.h <= wy2) t.sel.add(n.id);
+      renderCanvas();
+    }
+  });
+  const finish = (e) => {
+    const t = state.active; if (!t || !t.drag) return;
+    const d = t.drag; t.drag = null; t.marquee = null;
+    canvas.classList.remove('panning');
+    if (d.kind === 'double') { renderCanvas(); onDouble({ clientX: d.x, clientY: d.y }); return; }
+    if (d.kind === 'connect') {
+      const target = d.target;
+      if (target) {
+        const edge = { id: newId('e'), from: d.from, to: target, text: '', data: [], style: { ...DEFAULT_EDGE }, fromSide: d.side };
+        t.doc.edges.push(edge); t.sel = new Set([edge.id]); commit(t); return;
+      }
+    }
+    if ((d.kind === 'move' || d.kind === 'resize') && d.moved) { commit(t); return; }
+    renderCanvas();
+    if (e && e.type === 'pointercancel') renderCanvas();
+  };
+  canvas.addEventListener('pointerup', finish);
+  canvas.addEventListener('pointercancel', finish);
+  canvas.addEventListener('pointerleave', () => { const t = state.active; if (t && !t.drag && t.hover) { t.hover = null; renderCanvas(); } });
+  // クリックのたびに描き直して要素が入れ替わり、ブラウザの dblclick が起きないため、押した間隔と位置で判定する
+  const onDouble = (e) => {
+    const t = state.active; if (!t) return;
+    const under = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+    const nid = hitNode(under), eid = !nid && hitEdge(under);
+    if (nid) startEdit({ type: 'node', id: nid });
+    else if (eid) startEdit({ type: 'edge', id: eid });
+    else { const p = toWorld(e), n = addShape('text', p.x, p.y); if (n) startEdit({ type: 'node', id: n.id }, true); } // 何もない所なら文字を置く
+  };
+  canvas.addEventListener('wheel', (e) => {
+    const t = state.active; if (!t) return;
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) { const r = canvas.getBoundingClientRect(); setZoom(t.view.k * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); return; }
+    t.view.x -= e.shiftKey ? e.deltaY : e.deltaX; t.view.y -= e.shiftKey ? 0 : e.deltaY;
+    renderCanvas();
+  }, { passive: false });
+  canvas.addEventListener('contextmenu', (e) => {
+    const t = state.active; if (!t) return;
+    e.preventDefault();
+    const nid = hitNode(e.target), eid = !nid && hitEdge(e.target);
+    if (nid && !t.sel.has(nid)) t.sel = new Set([nid]); else if (eid && !t.sel.has(eid)) t.sel = new Set([eid]);
+    renderCanvas();
+    const p = toWorld(e), any = t.sel.size > 0, hasNode = t.doc.nodes.some((n) => t.sel.has(n.id));
+    const items = any ? [
+      { label: '文字を編集', run: () => startEdit(nid ? { type: 'node', id: nid } : { type: 'edge', id: eid || [...t.sel][0] }), hidden: !(nid || eid) },
+      { label: 'コピー', hint: keyText({ mod: 1, code: 'KeyC' }), run: copySelection, hidden: !hasNode },
+      { label: '複製', hint: keyText({ mod: 1, code: 'KeyD' }), run: duplicate, hidden: !hasNode },
+      { label: '最前面へ', run: () => reorder(true), hidden: !hasNode },
+      { label: '最背面へ', run: () => reorder(false), hidden: !hasNode },
+      '-',
+      { label: '削除', hint: 'Delete', danger: true, run: deleteSelection },
+    ] : [
+      { label: '貼り付け', hint: keyText({ mod: 1, code: 'KeyV' }), run: paste, hidden: !state.clipboard },
+      { label: '文字を置く', run: () => { const n = addShape('text', p.x, p.y); if (n) startEdit({ type: 'node', id: n.id }, true); } },
+      { label: 'すべて選択', hint: keyText({ mod: 1, code: 'KeyA' }), run: () => { t.sel = new Set(t.doc.nodes.map((n) => n.id)); renderCanvas(); } },
+    ];
+    showMenu(e.clientX, e.clientY, items.filter((x) => x === '-' || !x.hidden));
+  });
+  // 図形の一覧からのドラッグ
+  canvas.addEventListener('dragover', (e) => { if (state.active && e.dataTransfer.types.includes('application/x-diagram-shape')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  canvas.addEventListener('drop', (e) => {
+    const type = e.dataTransfer.getData('application/x-diagram-shape');
+    if (!type || !Object.hasOwn(SHAPES, type) || !state.active) return;
+    e.preventDefault();
+    const p = toWorld(e); addShape(type, p.x, p.y); canvas.focus();
+  });
+  canvas.addEventListener('keydown', (e) => {
+    const t = state.active; if (!t || e.isComposing) return;
+    lastDown = null; // キー操作をはさんだら、続けてのクリックをダブルクリックとみなさない
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (e.key === ' ' && !spaceDown) { spaceDown = true; canvas.classList.add('space'); e.preventDefault(); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && t.sel.size) { e.preventDefault(); deleteSelection(); return; }
+    if (e.key === 'Escape') { t.sel.clear(); renderCanvas(); return; }
+    if ((e.key === 'Enter' || e.key === 'F2') && t.sel.size === 1) {
+      const id = [...t.sel][0]; e.preventDefault();
+      startEdit(nodeById(t.doc, id) ? { type: 'node', id } : { type: 'edge', id }); return;
+    }
+    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (arrows && t.sel.size && !mod) { e.preventDefault(); const s = e.shiftKey ? GRID : 1; nudge(arrows[0] * s, arrows[1] * s); return; }
+    if (mod && e.code === 'KeyA') { e.preventDefault(); t.sel = new Set(t.doc.nodes.map((n) => n.id)); renderCanvas(); return; }
+    if (mod && e.code === 'KeyC') { e.preventDefault(); copySelection(); return; }
+    if (mod && e.code === 'KeyX') { e.preventDefault(); if (copySelection()) deleteSelection(); return; }
+    if (mod && e.code === 'KeyV') { e.preventDefault(); paste(); return; }
+    if (mod && e.code === 'KeyD') { e.preventDefault(); duplicate(); }
+  });
+  canvas.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceDown = false; canvas.classList.remove('space'); } });
+  window.addEventListener('blur', () => { spaceDown = false; canvas.classList.remove('space'); });
+  new ResizeObserver(() => { if (state.active) renderCanvas(); }).observe($('#stage'));
+}
+
+/* ---------- 図形の一覧 ---------- */
+/** 一覧の見本はテーマの文字色で線だけを描く(暗いテーマでも見えるように) */
+function paletteIcon(type) {
+  const s = SHAPES[type], k = Math.min(34 / s.w, 28 / s.h);
+  if (type === 'text') return '<svg viewBox="0 0 34 28" aria-hidden="true"><text x="17" y="15" text-anchor="middle" dominant-baseline="central" font-size="17" font-weight="700" fill="currentColor" font-family="system-ui,sans-serif">T</text></svg>';
+  const n = { ...makeNode(type, 0, 0), text: '', w: s.w, h: s.h };
+  n.style = { ...n.style, fill: 'none', stroke: 'currentColor' };
+  return `<svg viewBox="0 0 ${s.w} ${s.h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${shapeSvg(n)}</svg>`.replace(/stroke-width="1\.6"/g, `stroke-width="${(1.4 / k).toFixed(2)}"`);
+}
+function initPalette() {
+  const box = $('#palette');
+  for (const [title, types] of PALETTE_GROUPS) {
+    box.append(el('h3', '', title));
+    const grid = el('div', 'pal');
+    for (const type of types) {
+      const b = el('button'); b.type = 'button'; b.title = `${SHAPES[type].label}(クリックで中央に追加、ドラッグで配置)`; b.setAttribute('aria-label', SHAPES[type].label);
+      b.dataset.shape = type; b.innerHTML = paletteIcon(type); b.draggable = true;
+      b.onclick = () => { if (!state.active) { toast('図を開くか新しく作ってください', true); return; } const c = viewCenter(), n = addShape(type, c.x, c.y); if (n && type === 'text') startEdit({ type: 'node', id: n.id }, true); else canvas.focus(); };
+      b.addEventListener('dragstart', (e) => { e.dataTransfer.setData('application/x-diagram-shape', type); e.dataTransfer.effectAllowed = 'copy'; });
+      grid.append(b);
+    }
+    box.append(grid);
+  }
+}
+
+/* ---------- 書式パネル ---------- */
+function swatches(colors, current, onPick, label) {
+  const box = el('div', 'sw');
+  for (const c of colors) {
+    const b = el('button', (c === current ? 'on ' : '') + (c === 'none' ? 'nofill' : '')); b.type = 'button';
+    if (c !== 'none') b.style.background = c;
+    b.title = c === 'none' ? 'なし' : c; b.setAttribute('aria-label', `${label}: ${c === 'none' ? 'なし' : c}`);
+    b.onclick = () => onPick(c);
+    box.append(b);
+  }
+  return box;
+}
+function seg(options, current, onPick) {
+  const box = el('div', 'seg');
+  for (const [v, label] of options) { const b = el('button', v === current ? 'on' : '', label); b.type = 'button'; b.onclick = () => onPick(v); box.append(b); }
+  return box;
+}
+/** 線のラベルと、やりとりするデータの入力欄 */
+function edgeDataProps(t, e) {
+  const name = (id) => { const n = nodeById(t.doc, id), s = (n && (n.text.split('\n')[0].trim() || SHAPES[n.type].label)) || '?'; return s.length > 12 ? s.slice(0, 12) + '…' : s; };
+  const from = name(e.from), to = name(e.to), out = [];
+  const label = el('input', 'txt'); label.type = 'text'; label.value = e.text; label.placeholder = '例: HTTPS、API、バッチ'; label.setAttribute('aria-label', 'ラベル');
+  label.onchange = () => { e.text = label.value; commitFromProps(t); };
+  out.push(el('h3', '', 'ラベル'), label);
+  out.push(el('h3', '', 'やりとりするデータ'));
+  const list = el('div', 'dlist');
+  const row = (item) => {
+    let d = item;
+    const r = el('div', 'drow'), dir = el('select'), inp = el('input', 'txt'), del = el('button', 'x', '×');
+    dir.setAttribute('aria-label', 'データの向き');
+    dir.append(new Option(`${from} → ${to}`, 'forward'), new Option(`${to} → ${from}`, 'backward'));
+    dir.value = d ? d.dir : 'forward';
+    inp.type = 'text'; inp.value = d ? d.name : ''; inp.placeholder = '例: 注文データ'; inp.setAttribute('aria-label', 'データ名');
+    del.type = 'button'; del.title = 'このデータを削除'; del.setAttribute('aria-label', 'このデータを削除');
+    const drop = () => { e.data = e.data.filter((x) => x !== d); r.remove(); commitFromProps(t); };
+    dir.onchange = () => { if (d) { d.dir = dir.value; commitFromProps(t); } };
+    inp.onchange = () => {
+      const v = inp.value.trim();
+      if (d && !v) { drop(); return; } // 名前を消したら削除
+      if (d) { d.name = v; commitFromProps(t); return; }
+      if (v) { d = { name: v, dir: dir.value }; e.data = [...(e.data || []), d]; commitFromProps(t); }
+    };
+    inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing && ev.keyCode !== 229) { ev.preventDefault(); inp.blur(); } });
+    del.onclick = () => { if (d) drop(); else r.remove(); };
+    const line = el('div', 'dline'); line.append(inp, del);
+    r.append(dir, line);
+    return r;
+  };
+  for (const d of e.data || []) list.append(row(d));
+  const add = el('div', 'btns');
+  add.append(button('+ データを追加', '', () => { const r = row(null); list.append(r); r.querySelector('input').focus(); }));
+  out.push(list, add, el('p', 'hint', '線の上の札に、矢印付きで表示します。双方向のやりとりは、向きごとに追加します。'));
+  return out;
+}
+let keepProps = false;
+const commitFromProps = (t) => { keepProps = true; commit(t); keepProps = false; };
+function renderProps() {
+  const box = $('#props'), t = state.active;
+  if (!t) { box.replaceChildren(); return; }
+  // 入力中は作り直さない(ホバーなどの描き直しで入力が消えないように)
+  const key = [...t.sel].join() + '|' + t.snap.length + '|' + t.past.length;
+  if (box.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName) && box.dataset.key === key) return;
+  // 書式パネルの入力欄で変えたときは、画面がすでに最新なので作り直さない(続けて押したボタンのクリックが消えないように)
+  if (keepProps) { keepProps = false; box.dataset.key = key; return; }
+  box.dataset.key = key;
+  const nodes = t.doc.nodes.filter((n) => t.sel.has(n.id)), edges = t.doc.edges.filter((e) => t.sel.has(e.id));
+  const out = [];
+  const apply = (list, fn) => { list.forEach(fn); commit(t); };
+  if (!nodes.length && !edges.length) {
+    out.push(el('h3', '', '書式'), el('p', 'none', '図形や線を選ぶと、色や線の種類を変えられます。'));
+    out.push(el('h3', '', '使い方'), el('p', 'none', '左の一覧から図形を追加します。図形の縁の点からドラッグすると、別の図形と線でつなげます。ダブルクリックで文字を編集します。'));
+  }
+  if (nodes.length) {
+    const s = nodes[0].style;
+    out.push(el('h3', '', nodes.length > 1 ? `図形 ${nodes.length} 個` : SHAPES[nodes[0].type].label));
+    out.push(el('h3', '', '塗り'), swatches(FILLS, s.fill, (c) => apply(nodes, (n) => { n.style.fill = c; }), '塗り'));
+    out.push(el('h3', '', '線'), swatches(STROKES, s.stroke, (c) => apply(nodes, (n) => { n.style.stroke = c; }), '線'));
+    out.push(el('h3', '', '文字の色'), swatches(TEXTS, s.color, (c) => apply(nodes, (n) => { n.style.color = c; }), '文字の色'));
+    out.push(el('h3', '', '文字の大きさ'));
+    const sel = el('select'); sel.setAttribute('aria-label', '文字の大きさ');
+    for (const z of SIZES) sel.append(new Option(`${z}px`, z));
+    sel.value = String(s.size); sel.onchange = () => apply(nodes, (n) => { n.style.size = +sel.value; });
+    out.push(sel);
+    const ck = (label, key) => { const l = el('label', 'ck'), c = el('input'); c.type = 'checkbox'; c.checked = !!s[key]; c.onchange = () => apply(nodes, (n) => { n.style[key] = c.checked; }); l.append(c, label); return l; };
+    out.push(ck('破線', 'dash'), ck('太字', 'bold'));
+    const btns = el('div', 'btns');
+    btns.append(button('最前面へ', '', () => reorder(true)), button('最背面へ', '', () => reorder(false)));
+    out.push(el('h3', '', '重なり順'), btns);
+  }
+  if (edges.length) {
+    const s = edges[0].style;
+    out.push(el('h3', '', edges.length > 1 ? `線 ${edges.length} 本` : '線'));
+    out.push(el('h3', '', '色'), swatches(STROKES.filter((c) => c !== 'none'), s.stroke, (c) => apply(edges, (e) => { e.style.stroke = c; }), '線の色'));
+    out.push(el('h3', '', '経路'), seg([['elbow', '直角'], ['straight', '直線']], s.route, (v) => apply(edges, (e) => { e.style.route = v; })));
+    const arrow = s.arrowStart && s.arrowEnd ? 'both' : s.arrowEnd ? 'end' : s.arrowStart ? 'start' : 'none';
+    out.push(el('h3', '', '矢印'), seg([['end', '終点'], ['both', '両端'], ['none', 'なし']], arrow, (v) => apply(edges, (e) => { e.style.arrowEnd = v !== 'none'; e.style.arrowStart = v === 'both'; })));
+    out.push(el('h3', '', '太さ'), seg([[1.6, '細'], [2.6, '中'], [4, '太']], s.width, (v) => apply(edges, (e) => { e.style.width = v; })));
+    const l = el('label', 'ck'), c = el('input'); c.type = 'checkbox'; c.checked = s.dash; c.onchange = () => apply(edges, (e) => { e.style.dash = c.checked; }); l.append(c, '破線');
+    out.push(l);
+    if (edges.length === 1) out.push(...edgeDataProps(t, edges[0]));
+  }
+  box.replaceChildren(...out);
+}
+
+/* ---------- IndexedDB(フォルダの復元用) ---------- */
+function idb(mode, fn) {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('diagram-studio', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onerror = () => rej(r.error);
+    r.onsuccess = () => {
+      const tx = r.result.transaction('kv', mode), q = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => { r.result.close(); res(q && q.result); };
+      tx.onerror = () => rej(tx.error);
+    };
+  });
+}
+
+/* ---------- ファイルシステム ---------- */
+const join = (a, b) => (a ? a + '/' + b : b);
+const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+const baseOf = (p) => p.slice(p.lastIndexOf('/') + 1);
+const SKIP = new Set(['.git', 'node_modules', '.DS_Store', '__pycache__', '.Trash', 'Thumbs.db']);
+const collator = new Intl.Collator('ja', { numeric: true, sensitivity: 'base' });
+const hasFsApi = 'showDirectoryPicker' in window;
+async function readDir(handle, path, parent) {
+  const node = { name: handle.name, kind: 'directory', handle, path, parent, children: [] }, sub = [];
+  for await (const [name, h] of handle.entries()) {
+    if (SKIP.has(name)) continue;
+    if (h.kind === 'directory') sub.push(readDir(h, join(path, name), node));
+    else node.children.push({ name, kind: 'file', handle: h, path: join(path, name), parent: node });
+  }
+  node.children.push(...await Promise.all(sub));
+  node.children.sort((a, b) => (a.kind === b.kind ? collator.compare(a.name, b.name) : a.kind === 'directory' ? -1 : 1));
+  return node;
+}
+function findNode(path, n = state.root) {
+  if (!n) return null;
+  if (n.path === path) return n;
+  if (n.children) for (const c of n.children) if (path === c.path || path.startsWith(c.path + '/')) return findNode(path, c);
+  return null;
+}
+async function exists(dir, name) {
+  for (const m of ['getFileHandle', 'getDirectoryHandle']) {
+    try { await dir[m](name); return true; } catch (e) { if (e.name === 'TypeMismatchError') return true; if (e.name !== 'NotFoundError') throw e; }
+  }
+  return false;
+}
+async function writeFile(handle, data) { const w = await handle.createWritable(); await w.write(data); await w.close(); }
+async function copyEntry(handle, dstDir, name) {
+  if (handle.kind === 'file') { await writeFile(await dstDir.getFileHandle(name, { create: true }), await handle.getFile()); return; }
+  const nd = await dstDir.getDirectoryHandle(name, { create: true });
+  for await (const [n, h] of handle.entries()) await copyEntry(h, nd, n);
+}
+const removeEntry = (node) => node.parent.handle.removeEntry(node.name, { recursive: true });
+function validName(n) {
+  if (n == null) return null;
+  n = n.trim();
+  if (!n) return null;
+  if (/[/\\:*?"<>|]/.test(n) || n === '.' || n === '..') { toast('ファイル名に使えない文字が含まれています: / \\ : * ? " < > |', true); return null; }
+  return n;
+}
+async function uniqueName(dir, name) {
+  const ext = isDiagram(name) ? EXT : name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.')) : '', stem = name.slice(0, name.length - ext.length);
+  let cand = `${stem} のコピー${ext}`;
+  for (let n = 2; await exists(dir, cand); n++) cand = `${stem} のコピー ${n}${ext}`;
+  return cand;
+}
+function remapTabs(oldPath, newPath) {
+  for (const t of state.tabs) if (t.path === oldPath || t.path.startsWith(oldPath + '/')) { t.path = newPath + t.path.slice(oldPath.length); t.name = baseOf(t.path); t.movedByApp = true; }
+  for (const p of [...state.expanded].filter((x) => x === oldPath || x.startsWith(oldPath + '/'))) { state.expanded.delete(p); state.expanded.add(newPath + p.slice(oldPath.length)); }
+}
+async function reloadTree() {
+  const r = state.root;
+  state.root = await readDir(r.handle, '', null); state.root.name = r.name;
+  for (const t of state.tabs) {
+    const n = findNode(t.path); if (!n) continue;
+    t.handle = n.handle;
+    if (t.movedByApp) { t.mtime = (await n.handle.getFile()).lastModified; t.movedByApp = false; } // コピーで更新日時が変わるため取り直す
+  }
+  renderTree(); renderTabs();
+}
+async function setRoot(handle) {
+  $('#tree').replaceChildren(el('div', 'side-empty', '読み込み中…'));
+  state.root = await readDir(handle, '', null);
+  state.expanded = new Set(store.get('expanded.' + handle.name, []));
+  $('#rootName').textContent = handle.name; $('#rootName').title = handle.name;
+  await idb('readwrite', (s) => s.put(handle, 'root'));
+  renderTree();
+}
+async function closeAllTabs() { for (const t of [...state.tabs]) if (!await closeTab(t)) return false; return true; }
+
+/* ---------- エクスプローラー ---------- */
+function renderTree() {
+  const tree = $('#tree'), top = tree.scrollTop;
+  store.set('expanded.' + (state.root ? state.root.name : ''), [...state.expanded]);
+  if (!state.root) { renderSideEmpty(); return; }
+  const frag = document.createDocumentFragment();
+  const walk = (n, depth) => {
+    for (const c of n.children) {
+      const dir = c.kind === 'directory', open = dir && state.expanded.has(c.path), dg = !dir && isDiagram(c.name);
+      const row = el('div', 'row' + (open ? ' open' : '') + (!dir && !dg ? ' other' : '') + (state.active && state.active.path === c.path ? ' sel' : ''));
+      row.dataset.path = c.path; row.draggable = true; row.style.paddingLeft = 6 + depth * 14 + 'px'; row.title = c.path;
+      row.innerHTML = `<span class="tw">${dir ? icon('chevron') : ''}</span>${dir ? icon('folder', 'ic-dir') : dg ? icon('diagram', 'ic-dg') : icon('file', 'ic-file')}<span class="nm">${esc(dg ? c.name.slice(0, -EXT.length) : c.name)}</span>`;
+      frag.append(row);
+      if (open) walk(c, depth + 1);
+    }
+  };
+  walk(state.root, 0);
+  if (!state.root.children.length) frag.append(el('div', 'side-empty', 'このフォルダは空です。右クリックで図を作成できます。'));
+  tree.replaceChildren(frag);
+  tree.scrollTop = top;
+}
+async function renderSideEmpty() {
+  const box = el('div', 'side-empty');
+  if (!hasFsApi) box.textContent = 'このブラウザはフォルダの読み書きに対応していません。Chrome または Edge で開いてください。';
+  else {
+    box.append(button('フォルダを開く', 'primary', () => commands.openFolder.run()));
+    const saved = await idb('readonly', (s) => s.get('root')).catch(() => null);
+    if (saved && !state.root) {
+      const r = button(`前回のフォルダを復元: ${saved.name}`, '', guard(async () => { if (await saved.requestPermission({ mode: 'readwrite' }) === 'granted') await setRoot(saved); }));
+      r.style.cssText = 'margin-top:8px;height:auto;min-height:32px;padding:5px 12px;text-align:left;overflow-wrap:anywhere';
+      box.append(r);
+    }
+  }
+  if (!state.root) $('#tree').replaceChildren(box);
+}
+const nodeFrom = (t) => { const r = t.closest && t.closest('.row'); return r ? findNode(r.dataset.path) : null; };
+const dirFor = (n) => (n.kind === 'directory' ? n : n.parent);
+async function createDiagram(dir, name) {
+  if (await exists(dir.handle, name)) { toast(`「${name}」は既に存在します`, true); return; }
+  await writeFile(await dir.handle.getFileHandle(name, { create: true }), serialize(emptyDoc()));
+  state.expanded.add(dir.path);
+  await reloadTree();
+  await openFile(findNode(join(dir.path, name)));
+}
+const menuActions = {
+  newFile: guard(async (n) => {
+    const d = dirFor(n), initial = `${datePrefix()}${EXT}`;
+    let v = validName(await ask({ title: '新しい図', label: `${d.path || d.name} に作成`, value: initial, caret: initial.length - EXT.length }));
+    if (!v) return;
+    if (!isDiagram(v)) v += EXT;
+    await createDiagram(d, v);
+  }),
+  newDir: guard(async (n) => {
+    const d = dirFor(n), initial = datePrefix();
+    const v = validName(await ask({ title: '新規フォルダ', label: `${d.path || d.name} に作成`, value: initial, caret: initial.length }));
+    if (!v) return;
+    if (await exists(d.handle, v)) { toast(`「${v}」は既に存在します`, true); return; }
+    await d.handle.getDirectoryHandle(v, { create: true });
+    state.expanded.add(d.path); state.expanded.add(join(d.path, v));
+    await reloadTree();
+  }),
+  rename: guard(async (n) => {
+    const stemEnd = n.kind === 'file' ? (isDiagram(n.name) ? n.name.length - EXT.length : n.name.lastIndexOf('.')) : -1;
+    const v = validName(await ask({ title: '名前の変更', value: n.name, caret: stemEnd > 0 ? stemEnd : undefined }));
+    if (!v || v === n.name) return;
+    const dir = n.parent.handle, caseOnly = v.toLowerCase() === n.name.toLowerCase();
+    if (!caseOnly && await exists(dir, v)) { toast(`「${v}」は既に存在します`, true); return; }
+    if (caseOnly) { // 大文字小文字だけの変更は一時名を経由する
+      const tmp = `.dgs-rename-${Date.now()}`;
+      await copyEntry(n.handle, dir, tmp); await removeEntry(n);
+      await copyEntry(n.kind === 'file' ? await dir.getFileHandle(tmp) : await dir.getDirectoryHandle(tmp), dir, v);
+      await dir.removeEntry(tmp, { recursive: true });
+    } else { await copyEntry(n.handle, dir, v); await removeEntry(n); }
+    remapTabs(n.path, join(n.parent.path, v));
+    await reloadTree();
+  }),
+  duplicate: guard(async (n) => {
+    const v = await uniqueName(n.parent.handle, n.name);
+    await copyEntry(n.handle, n.parent.handle, v);
+    await reloadTree();
+    toast(`「${v}」を作成しました`);
+  }),
+  remove: guard(async (n) => {
+    const inside = state.tabs.filter((t) => t.path === n.path || t.path.startsWith(n.path + '/')), dirty = inside.filter((t) => t.dirty).length;
+    const r = await choose({
+      title: '削除の確認',
+      message: `「${n.name}」${n.kind === 'directory' ? 'とその中身すべて' : ''}を完全に削除します。ゴミ箱には移動されず、元に戻せません。` + (dirty ? `未保存のタブが ${dirty} 件あり、その変更も失われます。` : ''),
+      buttons: [{ label: 'キャンセル', value: null }, { label: '削除', value: 'y', kind: 'danger' }],
+    });
+    if (r !== 'y') return;
+    await removeEntry(n);
+    inside.forEach(dropTab);
+    await reloadTree();
+  }),
+};
+function showMenu(x, y, items) {
+  hideMenu();
+  const m = el('div'); m.id = 'ctx'; m.setAttribute('role', 'menu');
+  for (const it of items) {
+    if (it === '-') { m.append(el('hr')); continue; }
+    const b = el('button', it.danger ? 'danger' : ''); b.type = 'button'; b.setAttribute('role', 'menuitem');
+    b.innerHTML = (it.icon ? icon(it.icon) : '') + `<span>${esc(it.label)}</span>` + (it.hint ? `<kbd>${esc(it.hint)}</kbd>` : '');
+    b.onclick = () => { hideMenu(); it.run(); };
+    m.append(b);
+  }
+  document.body.append(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 6) + 'px';
+  m.style.top = Math.min(y, innerHeight - r.height - 6) + 'px';
+  const first = m.querySelector('button'); if (first) first.focus();
+}
+function hideMenu() { const m = $('#ctx'); if (m) m.remove(); }
+async function moveNode(src, dst) {
+  if (src.parent === dst) return;
+  if (dst.path === src.path || dst.path.startsWith(src.path + '/')) { toast('フォルダを自分の中へは移動できません', true); return; }
+  if (await exists(dst.handle, src.name)) { toast(`移動先に「${src.name}」が既に存在します`, true); return; }
+  await copyEntry(src.handle, dst.handle, src.name);
+  await removeEntry(src);
+  remapTabs(src.path, join(dst.path, src.name));
+  state.expanded.add(dst.path);
+  await reloadTree();
+}
+function initTree() {
+  const tree = $('#tree');
+  tree.addEventListener('click', guard(async (e) => {
+    const n = nodeFrom(e.target); if (!n) return;
+    if (n.kind === 'directory') { if (state.expanded.has(n.path)) state.expanded.delete(n.path); else state.expanded.add(n.path); renderTree(); return; }
+    if (isDiagram(n.name)) await openFile(n); else toast('開けるのは図のファイル(.diagram.json)だけです', true);
+  }));
+  tree.addEventListener('contextmenu', (e) => {
+    if (!state.root) return;
+    e.preventDefault();
+    const n = nodeFrom(e.target) || state.root, isRoot = n === state.root;
+    const items = [{ icon: 'plusFile', label: '新しい図', run: () => menuActions.newFile(n) }, { icon: 'plusDir', label: '新規フォルダ', run: () => menuActions.newDir(n) }];
+    if (!isRoot) items.push('-', { icon: 'rename', label: '名前の変更', run: () => menuActions.rename(n) }, { icon: 'copy', label: '複製', run: () => menuActions.duplicate(n) }, { icon: 'trash', label: '削除', danger: true, run: () => menuActions.remove(n) });
+    showMenu(e.clientX, e.clientY, items);
+  });
+  const clearDrop = () => { $$('.row.drop').forEach((r) => r.classList.remove('drop')); tree.classList.remove('drop-root'); };
+  const targetOf = (e) => { const n = nodeFrom(e.target); return n ? dirFor(n) : state.root; };
+  tree.addEventListener('dragstart', (e) => { state.drag = nodeFrom(e.target); if (!state.drag) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', state.drag.path); });
+  tree.addEventListener('dragover', (e) => {
+    if (!state.drag) return;
+    const d = targetOf(e); clearDrop();
+    if (d === state.drag.parent || d.path === state.drag.path || d.path.startsWith(state.drag.path + '/')) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    if (d === state.root) tree.classList.add('drop-root'); else { const r = $$('.row', tree).find((x) => x.dataset.path === d.path); if (r) r.classList.add('drop'); }
+  });
+  tree.addEventListener('dragleave', clearDrop);
+  tree.addEventListener('dragend', () => { clearDrop(); state.drag = null; });
+  tree.addEventListener('drop', guard(async (e) => { e.preventDefault(); clearDrop(); const src = state.drag; state.drag = null; if (src) await moveNode(src, targetOf(e)); }));
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('#ctx')) hideMenu(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#ctx')) { e.preventDefault(); hideMenu(); } }, true);
+}
+function initResizer() {
+  const r = $('#resizer'), setW = (w) => document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+  setW(store.get('sidebarW', 250));
+  r.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); r.setPointerCapture(e.pointerId);
+    const move = (ev) => { const w = Math.max(160, Math.min(Math.min(560, innerWidth - 480), ev.clientX)); setW(w); store.set('sidebarW', w); };
+    const up = () => { r.removeEventListener('pointermove', move); r.removeEventListener('pointerup', up); };
+    r.addEventListener('pointermove', move); r.addEventListener('pointerup', up);
+  });
+}
+
+/* ---------- タブ ---------- */
+async function openFile(node) {
+  if (!node) return;
+  let t = state.tabs.find((x) => x.path === node.path);
+  if (!t) {
+    const f = await node.handle.getFile();
+    if (f.size > 20 * 1024 * 1024) { toast('20MB を超えるファイルは開けません', true); return; }
+    const doc = parseDiagram(await f.text());
+    const snap = JSON.stringify(doc);
+    t = { path: node.path, name: node.name, handle: node.handle, mtime: f.lastModified, doc, snap, saved: snap, dirty: false, past: [], future: [], sel: new Set(), view: null, hover: null };
+    state.tabs.push(t);
+    activate(t);
+    fitView();
+    return;
+  }
+  activate(t);
+}
+function activate(t) {
+  endEdit(true);
+  state.active = t;
+  if (t && !t.view) { const r = canvas.getBoundingClientRect(); t.view = { x: r.width / 2, y: r.height / 2, k: 1 }; }
+  renderTabs(); renderTree(); renderCanvas();
+  if (t) canvas.focus();
+}
+function renderTabs() {
+  const box = $('#tabs'), frag = document.createDocumentFragment();
+  for (const t of state.tabs) {
+    const d = el('div', 'tab' + (t === state.active ? ' on' : '') + (t.dirty ? ' dirty' : ''));
+    d.title = t.path;
+    d.innerHTML = `<span class="tn">${esc(t.name.slice(0, -EXT.length) || t.name)}</span><i class="dot" title="未保存"></i><button class="x" type="button" title="閉じる" aria-label="閉じる">${icon('x')}</button>`;
+    d.addEventListener('click', (e) => { if (e.target.closest('.x')) guard(closeTab)(t); else if (t !== state.active) activate(t); });
+    d.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); guard(closeTab)(t); } });
+    frag.append(d);
+  }
+  box.replaceChildren(frag);
+  const on = $('.tab.on', box); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+function dropTab(t) {
+  const i = state.tabs.indexOf(t); if (i < 0) return;
+  state.tabs.splice(i, 1);
+  if (state.active === t) activate(state.tabs[i] || state.tabs[i - 1] || null); else renderTabs();
+}
+async function closeTab(t) {
+  if (t.dirty) {
+    if (t !== state.active) activate(t);
+    const r = await choose({
+      title: '未保存の変更', message: `「${t.name}」には未保存の変更があります。保存しますか?`,
+      buttons: [{ label: 'キャンセル', value: null }, { label: '保存しない', value: 'discard', kind: 'danger' }, { label: '保存する', value: 'save', kind: 'primary' }],
+    });
+    if (!r) return false;
+    if (r === 'save' && !await saveTab(t)) return false;
+  }
+  dropTab(t);
+  return true;
+}
+async function saveTab(t) {
+  if (!t) return false;
+  try {
+    const cur = await t.handle.getFile();
+    if (cur.lastModified !== t.mtime) {
+      const r = await choose({ title: 'ファイルが変更されています', message: `「${t.name}」は開いた後に他のアプリで変更されています。上書きすると、その変更は失われます。`, buttons: [{ label: 'キャンセル', value: null }, { label: '上書き保存', value: 'y', kind: 'danger' }] });
+      if (r !== 'y') return false;
+    }
+    await writeFile(t.handle, serialize(t.doc));
+    t.saved = t.snap; t.dirty = false;
+    t.mtime = (await t.handle.getFile()).lastModified;
+    renderTabs(); toast('保存しました');
+    return true;
+  } catch (e) { fail(e); return false; }
+}
+
+/* ---------- 書き出し ---------- */
+/** 図と同じフォルダに、同じ名前の .svg / .png を書き出す */
+async function exportTo(kind) {
+  const t = state.active; if (!t) { toast('図を開いてください', true); return; }
+  if (!t.doc.nodes.length) { toast('図形がありません', true); return; }
+  const dir = findNode(dirOf(t.path)); if (!dir) throw new Error('保存先のフォルダが見つかりません');
+  const name = t.name.slice(0, -EXT.length) + '.' + kind, svg = exportSvg(t.doc);
+  let data = svg;
+  if (kind === 'png') {
+    const img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    await img.decode();
+    const scale = 2, c = document.createElement('canvas');
+    c.width = Math.ceil(img.naturalWidth * scale); c.height = Math.ceil(img.naturalHeight * scale);
+    const g = c.getContext('2d'); g.scale(scale, scale); g.drawImage(img, 0, 0);
+    data = await new Promise((res) => c.toBlob(res, 'image/png'));
+    if (!data) throw new Error('画像を作れませんでした');
+  }
+  const existed = await exists(dir.handle, name);
+  await writeFile(await dir.handle.getFileHandle(name, { create: true }), data);
+  await reloadTree();
+  toast(`${name} を${existed ? '上書きして' : ''}書き出しました`);
+}
+
+/* ---------- コマンド ---------- */
+const needDoc = (fn) => () => { if (!state.active) { toast('図を開いてください', true); return; } fn(); };
+function setTheme(th) { state.theme = th; store.set('theme', th); document.documentElement.dataset.theme = th; paintCommands(); if (state.active) renderCanvas(); }
+const commands = {
+  sidebar: { label: 'サイドバーの表示/非表示', icon: 'menu', key: { mod: 1, code: 'Backslash' }, active: () => !document.body.classList.contains('no-sidebar'), run() { document.body.classList.toggle('no-sidebar'); paintCommands(); } },
+  openFolder: { label: 'フォルダを開く', icon: 'folderOpen', key: { mod: 1, code: 'KeyO' }, run: guard(async () => { if (!hasFsApi) { toast('Chrome または Edge で開いてください', true); return; } const h = await window.showDirectoryPicker({ mode: 'readwrite' }); if (await closeAllTabs()) await setRoot(h); }) },
+  save: { label: '保存', icon: 'save', key: { mod: 1, code: 'KeyS' }, run: guard(async () => { if (state.active) await saveTab(state.active); }) },
+  undo: { label: '元に戻す', icon: 'undo', key: { mod: 1, code: 'KeyZ' }, enabled: () => state.active && state.active.past.length, run() { const t = state.active; if (t) restore(t.past, t.future); } },
+  redo: { label: 'やり直す', icon: 'redo', key: { mod: 1, shift: 1, code: 'KeyZ' }, enabled: () => state.active && state.active.future.length, run() { const t = state.active; if (t) restore(t.future, t.past); } },
+  front: { label: '最前面へ', icon: 'front', key: { mod: 1, shift: 1, code: 'BracketRight' }, enabled: () => selectedNodes().length, run: () => reorder(true) },
+  back: { label: '最背面へ', icon: 'back', key: { mod: 1, shift: 1, code: 'BracketLeft' }, enabled: () => selectedNodes().length, run: () => reorder(false) },
+  remove: { label: '削除', icon: 'trash', key: null, hint: 'Delete', enabled: () => state.active && state.active.sel.size, run: deleteSelection },
+  zoomOut: { label: '縮小', icon: 'zoomOut', key: { mod: 1, code: 'Minus' }, enabled: () => state.active, run: () => state.active && setZoom(state.active.view.k / 1.25) },
+  zoomIn: { label: '拡大', icon: 'zoomIn', key: { mod: 1, code: 'Equal' }, enabled: () => state.active, run: () => state.active && setZoom(state.active.view.k * 1.25) },
+  fit: { label: '全体表示', icon: 'fit', key: { mod: 1, code: 'Digit0' }, enabled: () => state.active, run: fitView },
+  snap: { label: 'グリッドに合わせる', icon: 'grid', key: null, hint: '移動中に Alt で一時解除', active: () => state.snap, run() { state.snap = !state.snap; store.set('snap', state.snap); paintCommands(); } },
+  svg: { label: 'SVG を書き出す', icon: 'image', text: 'SVG', key: { alt: 1, code: 'KeyS' }, enabled: () => state.active, run: guard(() => exportTo('svg')) },
+  png: { label: 'PNG を書き出す', icon: 'image', text: 'PNG', key: { alt: 1, code: 'KeyP' }, enabled: () => state.active, run: guard(() => exportTo('png')) },
+  theme: { label: 'テーマ切り替え', icon: 'moon', key: { alt: 1, code: 'KeyD' }, run() { setTheme(state.theme === 'dark' ? 'light' : 'dark'); } },
+  help: { label: 'ショートカット一覧', icon: 'help', key: { mod: 1, code: 'Slash' }, run: openHelp },
+  closeTab: { label: 'タブを閉じる', key: { alt: 1, code: 'KeyW' }, run: guard(async () => { if (state.active) await closeTab(state.active); }) },
+};
+function selectedNodes() { const t = state.active; return t ? t.doc.nodes.filter((n) => t.sel.has(n.id)) : []; }
+const KEY_LABEL = { Backslash: '\\', Slash: '/', Minus: '-', Equal: '+', Digit0: '0', BracketLeft: '[', BracketRight: ']' };
+function keyText(k) {
+  if (!k) return '';
+  const main = KEY_LABEL[k.code] || k.code.replace('Key', '');
+  if (isMac) return (k.alt ? '⌥' : '') + (k.shift ? '⇧' : '') + (k.mod ? '⌘' : '') + main;
+  return [k.mod && 'Ctrl', k.alt && 'Alt', k.shift && 'Shift', main].filter(Boolean).join('+');
+}
+function openHelp() {
+  const t = el('table', 'sc-table');
+  const fixed = [['文字の編集', 'ダブルクリック / Enter'], ['線でつなぐ', '図形の縁の点からドラッグ'], ['複数選択', 'Shift+クリック / 範囲をドラッグ'], ['画面の移動', 'スクロール / Space+ドラッグ'], ['拡大・縮小', `${isMac ? '⌘' : 'Ctrl'}+スクロール`], ['少しずつ動かす', '矢印キー(Shift で10)'], ['コピー / 貼り付け / 切り取り', `${keyText({ mod: 1, code: 'KeyC' })} / ${keyText({ mod: 1, code: 'KeyV' })} / ${keyText({ mod: 1, code: 'KeyX' })}`], ['複製', keyText({ mod: 1, code: 'KeyD' })], ['すべて選択', keyText({ mod: 1, code: 'KeyA' })], ['削除', 'Delete / Backspace']];
+  const rows = Object.values(commands).filter((c) => c.key || c.hint).map((c) => [c.label, c.key ? keyText(c.key) : c.hint]).concat(fixed);
+  for (const [l, k] of rows) { const tr = el('tr'); tr.append(el('td', '', l)); const td = el('td'); td.append(el('kbd', '', k)); tr.append(td); t.append(tr); }
+  const close = openModal({ title: 'ショートカット一覧', body: t, footer: [button('閉じる', 'primary', () => close(null))] });
+}
+function paintCommands() {
+  for (const b of $$('[data-cmd]')) {
+    const c = commands[b.dataset.cmd];
+    const ic = b.dataset.cmd === 'theme' ? (state.theme === 'dark' ? 'sun' : 'moon') : c.icon;
+    b.innerHTML = icon(ic) + (c.text ? `<span>${c.text}</span>` : '');
+    const tip = c.key ? `${c.label}(${keyText(c.key)})` : c.hint ? `${c.label}(${c.hint})` : c.label;
+    b.title = tip; b.setAttribute('aria-label', tip);
+    b.disabled = c.enabled ? !c.enabled() : false;
+    b.classList.toggle('on', !!(c.active && c.active()));
+  }
+}
+function onGlobalKey(e) {
+  if (e.isComposing || e.keyCode === 229 || state.modal || !editorEl.hidden) return;
+  if (e.target.closest && e.target.closest('#props input, #props select') && e.code !== 'KeyS') return; // 入力欄では文字の取り消しなどを優先する
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (mod && !e.altKey && e.code === 'KeyY') { e.preventDefault(); commands.redo.run(); return; }
+  for (const c of Object.values(commands)) {
+    const k = c.key; if (!k || k.code !== e.code) continue;
+    if (!!k.mod === mod && !!k.alt === e.altKey && !!k.shift === e.shiftKey) { e.preventDefault(); e.stopPropagation(); c.run(); return; }
+  }
+}
+
+/* ---------- 起動 ---------- */
+async function boot() {
+  document.documentElement.dataset.theme = state.theme;
+  $('#refresh').innerHTML = icon('refresh');
+  $('#refresh').onclick = guard(async () => { if (state.root) { await reloadTree(); toast('再読み込みしました'); } });
+  $('#empty').innerHTML = '<h1>Diagram Studio</h1><p>フローチャート、システム構成図、自由な図を描けます。フォルダを開き、右クリックの「新しい図」から作成してください。データはこの PC の中だけで扱い、外部へは送信しません。</p>';
+  for (const b of $$('[data-cmd]')) b.addEventListener('click', () => commands[b.dataset.cmd].run());
+  initPalette(); initCanvas(); initTree(); initResizer();
+  document.addEventListener('keydown', onGlobalKey, true);
+  window.addEventListener('beforeunload', (e) => { if (state.tabs.some((t) => t.dirty)) { e.preventDefault(); e.returnValue = ''; } });
+  renderTree(); renderTabs(); renderCanvas();
+  if (hasFsApi) {
+    const saved = await idb('readonly', (s) => s.get('root')).catch(() => null);
+    if (saved && await saved.queryPermission({ mode: 'readwrite' }) === 'granted') await guard(setRoot)(saved);
+  }
+}
+boot();
+})();
+</script>
+</body>
+</html>

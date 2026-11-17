@@ -62,3 +62,4 @@ export async function badXml(page, files) {
 
 export const MD_HOOK = 'window.__mds = { formatTables, organizeLinks, strWidth, parseTableSize, state, commands, openFile, findNode, menuActions, moveNode, setRoot, paginate, fillTemplate, buildPdfDom, A4 };';
 export const HTS_HOOK = 'window.__h = { state, commands, menuActions, findNode, formatHtml, buildDoc, mountDoc, paginate, A4, PDF_CSS };';
+export const DGS_HOOK = 'window.__d = { state, commands, openFile, findNode, menuActions, parseDiagram, serialize, exportSvg, edgePoints, addShape };';
