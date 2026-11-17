@@ -738,6 +738,7 @@ async function createFile(dir, name, open = true, content = '') {
 /* ---------- テンプレート ---------- */
 /* 開いているフォルダ直下の templates フォルダにある .md を、新規作成のときに選べる */
 const TEMPLATE_DIR = 'templates';
+const FOLDER_TEMPLATE = 'folder.md'; // 「フォルダ名でMDを作成」で使うテンプレート
 function templateFiles() {
   const dir = state.root && state.root.children.find((c) => c.kind === 'directory' && c.name === TEMPLATE_DIR);
   return dir ? [...walkFiles(dir)].filter((f) => MD_RE.test(f.name)) : null;
@@ -814,7 +815,10 @@ const menuActions = {
   folderMd: guard(async (n) => {
     const name = n.name + '.md';
     if (await exists(n.handle, name)) { await openFile(findNode(join(n.path, name))); toast(`「${name}」は既に存在するため開きました`); return; }
-    await createFile(n, name);
+    // templates/folder.md があれば、それをテンプレートとして使う。なければ空のファイルにする
+    let content = '';
+    try { content = fillTemplate(await (await fileAt(`${TEMPLATE_DIR}/${FOLDER_TEMPLATE}`)).text(), name); } catch { /* テンプレートがなければ空のまま */ }
+    await createFile(n, name, true, content);
   }),
   rename: guard(async (n) => {
     const i = n.kind === 'file' ? n.name.lastIndexOf('.') : -1;

@@ -1,0 +1,54 @@
+// Markdown Studio の Word 出力の中身: 見出しスタイル、自動番号、表、画像、リンク、コード
+import { chromium } from 'playwright-core';
+import http from 'node:http';
+import { appHtml, outDir, MD_HOOK, unzipFile, badXml } from './helpers.mjs';
+
+setTimeout(() => { console.log('WATCHDOG'); process.exit(3); }, 120000);
+process.on('unhandledRejection', (e) => { console.log('REJECT', String(e).slice(0, 500)); process.exit(2); });
+const OUT = outDir('markdown-word');
+const html = appHtml('markdown-studio', MD_HOOK);
+const srv = http.createServer((q, r) => { r.setHeader('content-type', 'text/html'); r.end(html); }).listen(0, '127.0.0.1');
+await new Promise((r) => srv.once('listening', r));
+const O = `http://127.0.0.1:${srv.address().port}`;
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1300, height: 800 } });
+const page = await ctx.newPage();
+const errs = [];
+page.on('pageerror', (e) => errs.push(e.message));
+await ctx.addInitScript(() => { window.showDirectoryPicker = async () => navigator.storage.getDirectory(); });
+let pass = 0, fail = 0;
+const ok = (n, c, x = '') => { if (c) { pass++; console.log('ok  ', n); } else { fail++; console.log('FAIL', n, x); } };
+
+const md = ['# 報告書', '', '本文 **太字** *斜体* `code`。[外部](https://example.com/a) [内部](b.md) [危険](javascript:alert(1))', '', '## リスト', '', '- 項目A', '    - 入れ子', '- 項目B', '', '1. 手順一', '2. 手順二', '', '- [x] 完了', '- [ ] 未完', '', '### 表', '', '| 左 | 中央 | 右 |', '|:--|:--:|--:|', '| 1 | 2 | 3 |', '', '```js', 'const a = 1;', '```', '', '> 引用', '', '![絵](pic.png)', '', '![外部](https://evil.example/x.png)', '', '```mermaid', 'flowchart LR', '  A --> B', '```', ''].join('\n');
+await page.goto(O);
+await page.waitForSelector('.placeholder');
+await page.evaluate(async (m) => {
+  const r = await navigator.storage.getDirectory();
+  for await (const [n] of r.entries()) await r.removeEntry(n, { recursive: true });
+  const w = async (n, d) => { const h = await r.getFileHandle(n, { create: true }); const s = await h.createWritable(); await s.write(d); await s.close(); };
+  const c = document.createElement('canvas'); c.width = 400; c.height = 100; c.getContext('2d').fillRect(0, 0, 400, 100);
+  await w('pic.png', await new Promise((x) => c.toBlob(x))); await w('doc.md', m);
+}, md);
+await page.click('[data-cmd=openFolder]');
+await page.click('.row[data-path="doc.md"]');
+await page.waitForSelector('#preview .mermaid-block svg', { timeout: 20000 });
+const [d] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('[data-cmd=word]')]);
+await d.saveAs(`${OUT}/doc.docx`);
+const z = unzipFile(`${OUT}/doc.docx`);
+const doc = z['word/document.xml'], rels = z['word/_rels/document.xml.rels'];
+ok('xml valid', (await badXml(page, z)).length === 0);
+ok('heading styles', ['Heading1', 'Heading2', 'Heading3'].every((s) => doc.includes(`<w:pStyle w:val="${s}"/>`)));
+ok('list numbering', (doc.match(/<w:numPr>/g) || []).length === 5, String((doc.match(/<w:numPr>/g) || []).length));
+ok('task list marks', doc.includes('☑ ') && doc.includes('☐ '));
+ok('table with repeating header row', doc.includes('<w:tbl>') && doc.includes('<w:tblHeader/>') && doc.includes('<w:jc w:val="right"/>'));
+ok('code shading', doc.includes('w:fill="F5F6F8"'));
+ok('local image and diagram embedded as media', Object.keys(z).filter((n) => n.startsWith('word/media/')).length === 2, Object.keys(z).filter((n) => n.startsWith('word/media/')).join());
+ok('two pictures in the document', (doc.match(/<w:drawing>/g) || []).length === 2);
+ok('external image kept as text', doc.includes('[外部画像: https://evil.example/x.png]'));
+ok('external link only, javascript dropped', rels.includes('Target="https://example.com/a"') && !doc.includes('javascript') && !rels.includes('javascript'));
+ok('A4 with page numbers', /<w:pgSz w:w="11906" w:h="16838"/.test(doc) && Object.keys(z).some((n) => /footer\d*\.xml$/.test(n) && /PAGE/.test(z[n])));
+await page.evaluate(() => { for (const t of __mds.state.tabs) t.dirty = false; });
+console.log('errors', errs);
+console.log(`\n${pass} passed, ${fail} failed`);
+await browser.close().catch(() => {});
+process.exit(fail ? 1 : 0);

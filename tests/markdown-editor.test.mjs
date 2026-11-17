@@ -42,6 +42,8 @@ await T(async () => {
   await w(r, 'test.md', '# 見出し\n');
   const t = await r.getDirectoryHandle('templates', { create: true });
   await w(t, '議事録.md', '# {{title}}\n\n- 日付: {{date:YYYY/MM/DD(ddd)}}\n- ファイル: {{filename}}\n');
+  await w(t, 'folder.md', '# {{title}} フォルダ\n\n作成日: {{date}}\nファイル: {{filename}}\n');
+  await r.getDirectoryHandle('案件A', { create: true });
 });
 await page.click('[data-cmd=openFolder]');
 await page.waitForSelector('.row[data-path="test.md"]');
@@ -128,6 +130,21 @@ ok('move', true);
 await act('remove', 'target/定例改 のコピー.md'); await page.waitForSelector('.modal'); await page.click('.modal .btn.danger');
 await page.waitForFunction(() => !__mds.findNode('target/定例改 のコピー.md'));
 ok('delete', true);
+
+// ---- フォルダ名でMDを作成 ----
+await act('folderMd', '案件A');
+await page.waitForFunction(() => __mds.state.active?.name === '案件A.md');
+const fm = await val();
+ok('folder md uses templates/folder.md', fm.startsWith('# 案件A フォルダ\n') && fm.includes('ファイル: 案件A.md') && /作成日: \d{4}-\d\d-\d\d/.test(fm), fm);
+ok('folder md is clean after creation', !(await page.$('.tab.on.dirty')));
+await T(async () => { const r = await navigator.storage.getDirectory(); await (await r.getDirectoryHandle('templates')).removeEntry('folder.md'); await r.getDirectoryHandle('案件B', { create: true }); });
+await page.click('#refresh'); await page.waitForTimeout(200);
+await act('folderMd', '案件B');
+await page.waitForFunction(() => __mds.state.active?.name === '案件B.md');
+ok('without folder.md the file is empty', await val() === '');
+await act('folderMd', '案件A');
+await page.waitForFunction(() => __mds.state.active?.name === '案件A.md');
+ok('existing folder md is opened, not overwritten', (await val()).startsWith('# 案件A フォルダ'));
 
 // ---- 検索 ----
 await page.keyboard.press(`${MOD}+Shift+f`);
