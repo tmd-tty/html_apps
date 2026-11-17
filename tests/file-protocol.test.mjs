@@ -16,6 +16,7 @@ const apps = [
 ];
 for (const { app, ready, boot } of apps) {
   const html = fs.readFileSync(appPath(app), 'utf8');
+  ok(`${app}: favicon embedded as data URI`, /<link rel="icon" href="data:image\/svg\+xml,/.test(html));
   ok(`${app}: CSP comes first in head`, /<head>\s*<meta http-equiv="Content-Security-Policy" content="default-src 'none';/.test(html));
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -26,6 +27,7 @@ for (const { app, ready, boot } of apps) {
   await page.waitForSelector(ready, { timeout: 20000 }).then(() => ok(`${app}: boots from file://`, true)).catch(() => ok(`${app}: boots from file://`, false));
   await page.waitForTimeout(400);
   ok(`${app}: no errors`, errs.length === 0, errs.join(' / '));
+  ok(`${app}: favicon shown without CSP violation`, await page.evaluate(() => new Promise((res) => { const i = new Image(); i.onload = () => res(i.naturalWidth > 0); i.onerror = () => res(false); i.src = document.querySelector('link[rel=icon]').href; })));
   ok(`${app}: only expected requests on boot`, reqs.length === boot.length && reqs.every((u) => boot.includes(u)), reqs.join(' '));
   await ctx.close();
 }
