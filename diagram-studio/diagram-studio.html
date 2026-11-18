@@ -801,6 +801,8 @@ function initCanvas() {
   canvas.addEventListener('pointerdown', (e) => {
     const t = state.active; if (!t) return;
     endEdit(true);
+    // クリックで描き直すと押した要素が消え、ブラウザによってはフォーカスが外れてキー操作が効かなくなるため、既定の動作を止めてキャンバスに置く
+    e.preventDefault();
     canvas.focus();
     const p = toWorld(e), target = e.target;
     if (e.button === 1 || (e.button === 0 && spaceDown)) { t.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: t.view.x, vy: t.view.y }; canvas.classList.add('panning'); canvas.setPointerCapture(e.pointerId); return; }
@@ -937,14 +939,16 @@ function initCanvas() {
     e.preventDefault();
     const p = toWorld(e); addShape(type, p.x, p.y); canvas.focus();
   });
-  canvas.addEventListener('keydown', (e) => {
-    const t = state.active; if (!t || e.isComposing) return;
+  // キャンバスにフォーカスがなくても(書式パネルのボタンを押した後など)、文字の入力欄以外なら図の操作として扱う
+  const elsewhere = (el) => !!(el && el.closest && el.closest('input, textarea, select, [contenteditable], #tree, #ctx, .modal, #viewer'));
+  document.addEventListener('keydown', (e) => {
+    const t = state.active; if (!t || !t.doc || e.isComposing || state.modal || !editorEl.hidden || elsewhere(e.target)) return;
     lastDown = null; // キー操作をはさんだら、続けてのクリックをダブルクリックとみなさない
     const mod = isMac ? e.metaKey : e.ctrlKey;
-    if (e.key === ' ' && !spaceDown) { spaceDown = true; canvas.classList.add('space'); e.preventDefault(); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && t.sel.size) { e.preventDefault(); deleteSelection(); return; }
+    if (e.key === ' ' && (e.target === canvas || e.target === document.body)) { if (!spaceDown) { spaceDown = true; canvas.classList.add('space'); } e.preventDefault(); return; }
+    if ((e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') && t.sel.size) { e.preventDefault(); deleteSelection(); return; }
     if (e.key === 'Escape') { t.sel.clear(); renderCanvas(); return; }
-    if ((e.key === 'Enter' || e.key === 'F2') && t.sel.size === 1) {
+    if ((e.key === 'Enter' || e.key === 'F2') && t.sel.size === 1 && (e.target === canvas || e.target === document.body)) { // ボタン上の Enter はボタンに任せる
       const id = [...t.sel][0]; e.preventDefault();
       startEdit(nodeById(t.doc, id) ? { type: 'node', id } : { type: 'edge', id }); return;
     }
@@ -956,7 +960,7 @@ function initCanvas() {
     if (mod && e.code === 'KeyV') { e.preventDefault(); paste(); return; }
     if (mod && e.code === 'KeyD') { e.preventDefault(); duplicate(); }
   });
-  canvas.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceDown = false; canvas.classList.remove('space'); } });
+  document.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceDown = false; canvas.classList.remove('space'); } });
   window.addEventListener('blur', () => { spaceDown = false; canvas.classList.remove('space'); });
   new ResizeObserver(() => { if (state.active) renderCanvas(); }).observe($('#stage'));
   // 画像の表示: ドラッグで移動、スクロールで移動、Ctrl+スクロールで拡大・縮小

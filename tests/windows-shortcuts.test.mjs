@@ -110,6 +110,42 @@ for (const app of ['markdown-studio', 'html-studio']) {
   ok('diagram: Ctrl+D duplicates', await T(() => __d.state.active.doc.nodes.length) === 3);
   await send(page, { key: 'Process', code: 'KeyZ', keyCode: 229, ctrlKey: true });
   ok('diagram: Ctrl+Z with IME on', await T(() => __d.state.active.doc.nodes.length) === 2);
+  // マウスで図形を選んでから Delete・コピー・貼り付け
+  const count = () => T(() => __d.state.active.doc.nodes.length);
+  const at = (x, y) => T(([x, y]) => { const r = document.getElementById('canvas').getBoundingClientRect(), v = __d.state.active.view; return { x: r.left + v.x + x * v.k, y: r.top + v.y + y * v.k }; }, [x, y]);
+  let p = await at(10, 10);
+  await page.mouse.click(p.x, p.y);
+  ok('diagram: click keeps keyboard focus on canvas', await T(() => document.activeElement.id === 'canvas' && __d.state.active.sel.has('a')));
+  await page.keyboard.press('Control+c');
+  await page.keyboard.press('Control+v');
+  ok('diagram: Ctrl+C / Ctrl+V after mouse click', await count() === 3);
+  await page.keyboard.press('Delete');
+  ok('diagram: Delete after paste', await count() === 2);
+  // 書式パネルのボタンを押した後でも効く
+  await page.mouse.click(p.x, p.y);
+  await page.click('#props .sw button[aria-label="塗り: #e3eefb"]');
+  // Windows ではクリックしたボタンにフォーカスが移る(Mac では移らない)ので、それを再現する
+  await page.focus('#props .sw button');
+  ok('diagram: focus moved to the panel', await T(() => document.activeElement.tagName === 'BUTTON'));
+  await page.keyboard.press('Control+c'); await page.keyboard.press('Control+v');
+  ok('diagram: Ctrl+C / Ctrl+V after using the panel', await count() === 3);
+  await page.keyboard.press('Delete');
+  ok('diagram: Delete after using the panel', await count() === 2);
+  // フォーカスがどこにもないときも効く
+  await page.mouse.click(p.x, p.y);
+  await T(() => document.activeElement.blur());
+  await page.keyboard.press('Delete');
+  ok('diagram: Delete without focus', await count() === 1);
+  await page.keyboard.press('Control+z');
+  // 文字の入力欄では、Delete や Ctrl+C は文字の操作のまま
+  p = await at(10, 10);
+  await page.mouse.click(p.x, p.y);
+  await page.click('#palette button[data-shape="rect"]');
+  const e2 = await count();
+  await T(() => { const D = __d.state.active.doc; D.edges.push({ id: 'e', from: 'a', to: 'b', text: '', data: [], style: { stroke: '#4b5565', dash: false, width: 1.6, route: 'elbow', arrowStart: false, arrowEnd: true } }); __d.state.active.sel = new Set(['e']); __d.commands.fit.run(); });
+  await page.fill('#props input[aria-label="ラベル"]', 'abc');
+  await page.keyboard.press('Delete'); await page.keyboard.press('Backspace');
+  ok('diagram: Delete in a text box edits the text only', await count() === e2 && await T(() => __d.state.active.doc.edges.length) === 1);
   ok('diagram: no errors', page.errs.length === 0, page.errs.join());
   await T(() => { for (const t of __d.state.tabs) t.dirty = false; });
   await ctx.close();
