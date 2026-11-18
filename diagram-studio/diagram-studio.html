@@ -71,6 +71,8 @@ body.no-sidebar #sidebar,body.no-sidebar #resizer{display:none}
 #palette h3{font-size:11px;color:var(--muted);margin:10px 2px 4px}
 .pal{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .pal button{height:40px;padding:3px;border:1px solid transparent;border-radius:6px;background:none;cursor:grab;display:flex;align-items:center;justify-content:center}
+#canvas .cdot .vis{transition:transform .08s;transform-box:fill-box;transform-origin:center}
+#canvas .cdot:hover .vis,#canvas .cdot.on .vis{transform:scale(1.45)}
 .pal button:hover{background:var(--hover);border-color:var(--line)}
 .pal svg{width:34px;height:28px;overflow:visible}
 /* キャンバス */
@@ -617,6 +619,18 @@ function renderCanvas() {
   renderProps(); paintCommands();
 }
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+/* 線をつなぐ点。大きさのつまみと重ならないよう図形から少し離し、押せる範囲(半径)を広く取る。数値は画面上の px */
+const SIDES = ['top', 'right', 'bottom', 'left'], DOT_OFFSET = 18, DOT_HIT = 13, HOVER_MARGIN = 36;
+function dotPos(n, side, k) {
+  const p = anchor(n, side), o = DOT_OFFSET / k;
+  return { top: { x: p.x, y: p.y - o }, bottom: { x: p.x, y: p.y + o }, left: { x: p.x - o, y: p.y }, right: { x: p.x + o, y: p.y } }[side];
+}
+/** 位置にある一番手前の図形。枠は、枠より手前の図形がないときだけ選ぶ */
+function nodeAt(doc, p, pad = 0) {
+  const inside = (n) => { const b = nodeBox(n); return p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad; };
+  const list = [...doc.nodes].reverse();
+  return list.find((n) => n.type !== 'frame' && inside(n)) || list.find((n) => n.type === 'frame' && inside(n)) || null;
+}
 function handlePos(n, h) {
   const x = { w: n.x, n: n.x + n.w / 2, s: n.x + n.w / 2, e: n.x + n.w }[h[h.length - 1]] ?? (h.includes('w') ? n.x : n.x + n.w);
   const y = h.startsWith('n') ? n.y : h.startsWith('s') ? n.y + n.h : n.y + n.h / 2;
@@ -632,11 +646,15 @@ function selectionSvg(t) {
     const n = selNodes[0];
     for (const h of HANDLES) { const p = handlePos(n, h); out += `<rect data-handle="${h}" x="${p.x - r}" y="${p.y - r}" width="${r * 2}" height="${r * 2}" fill="#ffffff" stroke="${acc}" stroke-width="${sw}" style="cursor:${h}-resize"/>`; }
   }
-  const hover = t.hover && nodeById(t.doc, t.hover);
-  const showDots = hover && !t.drag && !(selNodes.length === 1 && selNodes[0] === hover && false);
-  if (showDots || (t.drag && t.drag.kind === 'connect')) {
-    const n = t.drag && t.drag.kind === 'connect' ? t.drag.target && nodeById(t.doc, t.drag.target) : hover;
-    if (n) for (const side of ['top', 'right', 'bottom', 'left']) { const p = anchor(n, side), off = 10 / k, q = { top: [0, -off], bottom: [0, off], left: [-off, 0], right: [off, 0] }[side]; out += `<circle data-connect="${side}" data-of="${esc(n.id)}" cx="${p.x + q[0]}" cy="${p.y + q[1]}" r="${5 / k}" fill="${acc}" fill-opacity=".85" stroke="#fff" stroke-width="${1 / k}" style="cursor:crosshair"/>`; }
+  const hover = t.hover && nodeById(t.doc, t.hover), connecting = t.drag && t.drag.kind === 'connect';
+  const n = connecting ? t.drag.target && nodeById(t.doc, t.drag.target) : !t.drag && hover;
+  if (n) {
+    if (connecting) out += `<rect x="${n.x - 3 / k}" y="${n.y - 3 / k}" width="${n.w + 6 / k}" height="${n.h + 6 / k}" rx="${4 / k}" fill="${acc}" fill-opacity=".06" stroke="${acc}" stroke-width="${2 / k}" pointer-events="none"/>`; // つなぎ先を囲んで示す
+    for (const side of SIDES) {
+      const p = dotPos(n, side, k), on = connecting && t.drag.toSide === side;
+      // 見た目の点は小さく、押せる範囲は大きく取る
+      out += `<g class="cdot${on ? ' on' : ''}" data-connect="${side}" data-of="${esc(n.id)}" style="cursor:crosshair"><circle cx="${p.x}" cy="${p.y}" r="${DOT_HIT / k}" fill="transparent"/><circle class="vis" cx="${p.x}" cy="${p.y}" r="${6 / k}" fill="${acc}" stroke="#fff" stroke-width="${1.5 / k}"/></g>`;
+    }
   }
   if (t.drag && t.drag.kind === 'connect' && t.drag.to) {
     const a = anchor(nodeById(t.doc, t.drag.from), t.drag.side);
@@ -811,8 +829,8 @@ function initCanvas() {
     if (!e.shiftKey && last && e.timeStamp - last.time < 450 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) {
       lastDown = null; t.drag = { kind: 'double', x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); return; // 離した時に文字の編集を始める
     }
-    const dot = target.dataset && target.dataset.connect;
-    if (dot) { t.drag = { kind: 'connect', from: target.dataset.of, side: dot, to: p, target: null }; canvas.setPointerCapture(e.pointerId); renderCanvas(); return; }
+    const dotEl = target.closest && target.closest('[data-connect]');
+    if (dotEl) { t.drag = { kind: 'connect', from: dotEl.dataset.of, side: dotEl.dataset.connect, to: p, target: null }; canvas.setPointerCapture(e.pointerId); renderCanvas(); return; }
     const handle = target.dataset && target.dataset.handle;
     if (handle) { const n = nodeById(t.doc, [...t.sel][0]); t.drag = { kind: 'resize', id: n.id, handle, start: p, orig: { x: n.x, y: n.y, w: n.w, h: n.h } }; canvas.setPointerCapture(e.pointerId); return; }
     const nid = hitNode(target), eid = !nid && hitEdge(target);
@@ -835,7 +853,11 @@ function initCanvas() {
     const t = state.active; if (!t) return;
     const d = t.drag, p = toWorld(e);
     if (!d) {
-      const nid = hitNode(e.target) || (e.target.dataset && e.target.dataset.of) || null;
+      // 図形から点へカーソルを動かす途中で点が消えないよう、図形の周りに余裕を持たせる
+      const dotOf = e.target.closest && e.target.closest('[data-of]'), k = t.view.k, cur = t.hover && nodeById(t.doc, t.hover);
+      const direct = nodeAt(t.doc, p);
+      let nid = dotOf ? dotOf.dataset.of : direct ? direct.id : null;
+      if (!dotOf && cur && (!direct || direct.type === 'frame') && cur.type !== 'frame' && nodeAt({ nodes: [cur] }, p, HOVER_MARGIN / k)) nid = cur.id;
       if (nid !== t.hover) { t.hover = nid; renderCanvas(); }
       return;
     }
@@ -861,8 +883,11 @@ function initCanvas() {
     }
     if (d.kind === 'connect') {
       d.to = p;
-      const under = document.elementFromPoint(e.clientX, e.clientY), nid = under && (hitNode(under) || (under.dataset && under.dataset.of));
-      d.target = nid && nid !== d.from ? nid : null;
+      // 図形の上か、そのすぐ近くで離せばつながる。相手の点の近くなら、その辺につなぐ
+      const k = t.view.k, others = { nodes: t.doc.nodes.filter((n) => n.id !== d.from) };
+      const near = nodeAt(others, p) || nodeAt(others, p, DOT_OFFSET / k + DOT_HIT / k);
+      d.target = near ? near.id : null;
+      d.toSide = near ? SIDES.find((sd) => { const q = dotPos(near, sd, k); return Math.hypot(q.x - p.x, q.y - p.y) <= DOT_HIT * 1.3 / k; }) || null : null;
       renderCanvas(); return;
     }
     if (d.kind === 'marquee') {
@@ -883,6 +908,7 @@ function initCanvas() {
       const target = d.target;
       if (target) {
         const edge = { id: newId('e'), from: d.from, to: target, text: '', data: [], style: { ...DEFAULT_EDGE }, fromSide: d.side };
+        if (d.toSide) edge.toSide = d.toSide;
         t.doc.edges.push(edge); t.sel = new Set([edge.id]); commit(t); return;
       }
     }

@@ -90,6 +90,42 @@ const after = await T(() => __d.edgePoints(__d.state.active.doc, __d.state.activ
 ok('edge follows moved shape', after.y !== before.y, JSON.stringify([before, after]));
 await T(() => { __d.state.active.doc.nodes[1].y -= 200; });
 
+// ---- 線をつなぐ点の押しやすさ ----
+{
+  const D = await doc(), A = D.nodes[0], B = D.nodes[1], kk = await T(() => __d.state.active.view.k);
+  const c0 = await scr(A.x + A.w / 2, A.y + A.h / 2);
+  await page.mouse.move(c0.x, c0.y);
+  const dotBox = await page.locator(`[data-connect="bottom"][data-of="${A.id}"]`).boundingBox();
+  ok('connection dot hit area is large', dotBox.width >= 24 && dotBox.height >= 24, JSON.stringify(dotBox));
+  // 図形の端から点まで、すき間を通ってカーソルを動かしても点が消えない
+  const edgeBottom = await scr(A.x + A.w / 2, A.y + A.h);
+  await page.mouse.move(edgeBottom.x, edgeBottom.y + 2, { steps: 4 });
+  ok('dots stay while moving toward them', !!await page.$(`[data-connect="bottom"][data-of="${A.id}"]`));
+  const center = { x: dotBox.x + dotBox.width / 2, y: dotBox.y + dotBox.height / 2 };
+  await page.mouse.move(center.x, center.y, { steps: 4 });
+  ok('dot under cursor', await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y).closest('[data-connect]'), [center.x, center.y]));
+  // 点の端(中心から 10px)を押してもつなげられる。相手の図形の少し外で離してもつながる
+  const nEdges = D.edges.length;
+  const near = await scr(B.x + B.w / 2, B.y + B.h + 8 / kk);
+  await drag({ x: center.x + 10, y: center.y }, near);
+  let d2 = await doc();
+  ok('drop just outside target connects', d2.edges.length === nEdges + 1 && d2.edges.at(-1).from === A.id && d2.edges.at(-1).to === B.id, JSON.stringify(d2.edges.at(-1)));
+  await page.keyboard.press(`${MOD}+z`);
+  // 相手の点の上で離すと、その辺につなぐ
+  await page.mouse.move(c0.x, c0.y);
+  await page.mouse.move(center.x, center.y, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.move((await scr(B.x + B.w / 2, B.y + B.h / 2)).x, (await scr(B.x + B.w / 2, B.y + B.h / 2)).y, { steps: 4 });
+  const tb = await page.locator(`[data-connect="top"][data-of="${B.id}"]`).boundingBox();
+  await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2, { steps: 3 });
+  ok('target highlighted while connecting', await page.$eval(`[data-connect="top"][data-of="${B.id}"]`, (g) => g.classList.contains('on')));
+  await page.mouse.up();
+  d2 = await doc();
+  ok('drop on target dot sets that side', d2.edges.at(-1).toSide === 'top' && d2.edges.at(-1).fromSide === 'bottom', JSON.stringify(d2.edges.at(-1)));
+  await page.keyboard.press(`${MOD}+z`);
+  ok('undo removes the extra edges', (await doc()).edges.length === nEdges);
+}
+
 // ---- 文字の編集 ----
 const c = await scr(b.x + b.w / 2, b.y + b.h / 2);
 await page.mouse.dblclick(c.x, c.y);
