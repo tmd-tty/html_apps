@@ -217,12 +217,53 @@ await page.waitForSelector('.row[data-path="flow.png"]');
 const png = await T(async () => { const f = await (await (await navigator.storage.getDirectory()).getFileHandle('flow.png')).getFile(); const b = await createImageBitmap(f); return { type: f.type, w: b.width, h: b.height, sig: [...new Uint8Array(await f.slice(0, 4).arrayBuffer())] }; });
 ok('png exported at 2x', png.sig.join() === '137,80,78,71' && png.w > 300, JSON.stringify(png));
 
+// ---- 画像の表示 ----
+await page.click('.row[data-path="flow.svg"]');
+await page.waitForSelector('.tab.on:has-text("flow.svg")');
+await page.waitForFunction(() => document.querySelector('#viewer img').complete);
+ok('svg opens in viewer', await T(() => !document.getElementById('viewer').hidden && document.querySelector('#viewer img').src.startsWith('blob:') && document.querySelector('#viewer img').naturalWidth > 300));
+ok('palette hidden and edit commands disabled', await T(() => getComputedStyle(document.getElementById('palette')).display === 'none' && document.querySelector('[data-cmd=save]').disabled && document.querySelector('[data-cmd=png]').disabled));
+ok('image info shown', /SVG/.test(await page.textContent('#props')) && /px/.test(await page.textContent('#props')));
+const z0 = await T(() => __d.state.active.view.k);
+const vb = await page.$eval('#viewer', (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+await page.mouse.move(vb.x, vb.y);
+await page.keyboard.down(MOD); await page.mouse.wheel(0, -300); await page.keyboard.up(MOD);
+ok('ctrl+wheel zooms image', await T(() => __d.state.active.view.k) > z0);
+const vx = await T(() => __d.state.active.view.x);
+await drag(vb, { x: vb.x + 80, y: vb.y });
+ok('drag pans image', Math.round(await T(() => __d.state.active.view.x) - vx) === 80);
+await page.click('.row[data-path="flow.png"]');
+await page.waitForSelector('.tab.on:has-text("flow.png")');
+await page.waitForFunction(() => document.querySelector('#viewer img').complete);
+ok('png opens in viewer', await T(() => __d.state.active.kind === 'image' && __d.state.active.w === document.querySelector('#viewer img').naturalWidth));
+// 書き出し直すと、開いている画像の表示も新しくなる
+const oldUrl = await T(() => __d.state.tabs.find((t) => t.name === 'flow.png').url);
+await page.click('#props button:has-text("元の図を開く")');
+await page.waitForSelector('.tab.on:has-text("flow")');
+ok('back to diagram from image', await T(() => __d.state.active.name === 'flow.diagram.json' && document.getElementById('viewer').hidden && getComputedStyle(document.getElementById('palette')).display !== 'none'));
+await page.click('[data-cmd=png]');
+await page.waitForFunction((u) => __d.state.tabs.find((t) => t.name === 'flow.png').url !== u, oldUrl);
+ok('re-export refreshes open image tab', true);
+// スクリプトや外部の参照を含む SVG も、画像として表示するだけで実行も通信もしない
+await put('evil.svg', `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" onload="top.__x=5"><script>top.__x=6</script><image href="${O}/svgimg.png" width="10" height="10"/><rect width="100" height="50" fill="red"/></svg>`);
+await put('broken.png', 'not an image');
+await page.click('#refresh');
+await page.click('.row[data-path="evil.svg"]');
+await page.waitForSelector('.tab.on:has-text("evil.svg")');
+await page.waitForTimeout(300);
+ok('svg scripts do not run', await T(() => window.__x === 0));
+await page.click('.row[data-path="broken.png"]');
+await page.waitForTimeout(200);
+ok('broken image shows error and no tab', (await page.textContent('#toast')).includes('画像として表示できません') && !(await page.$('.tab:has-text("broken.png")')));
+for (const n of ['evil.svg', 'flow.svg', 'flow.png']) await page.click(`.tab:has-text("${n}") .x`);
+await page.click('.tab:has-text("flow")');
+
 // ---- 閉じるときの確認 ----
 await page.click('#palette button[data-shape="cloud"]');
 await page.click('.tab.on .x');
 await page.waitForSelector('.modal:has-text("未保存の変更")');
 await page.click('.modal button:has-text("キャンセル")');
-ok('close cancelled keeps tab', (await page.$$('.tab')).length === 2);
+ok('close cancelled keeps tab', (await page.$$('.tab')).length === 2, String((await page.$$('.tab')).length));
 
 // ---- 通信 ----
 ok('no network at all', reqs.length === 0 && hits.length === 0, reqs.join() + hits.join());

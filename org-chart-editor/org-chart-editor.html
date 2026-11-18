@@ -689,7 +689,8 @@ $('#fDelete').onclick = () => removeNode(state.editing);
 $('#fGroup').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submitNode(); } });
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || $('dialog[open]')) return;
-  const k = e.key.toLowerCase();
+  // IME がオンの Windows では key が "Process" になることがあるため、文字キーはキーの位置(code)で判定する
+  const k = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
   if (k === 's') { e.preventDefault(); guard(e.shiftKey ? saveAs : save)(); } else if (k === 'o') { e.preventDefault(); guard(openFile)(); } else if (k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); } else if (k === 'y') { e.preventDefault(); redo(); }
 });
 window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });

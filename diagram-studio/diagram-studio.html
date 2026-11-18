@@ -53,7 +53,7 @@ body.no-sidebar #sidebar,body.no-sidebar #resizer{display:none}
 .row.open .tw svg{transform:rotate(90deg)}
 .row svg.i{width:15px;height:15px}
 .row .nm{overflow:hidden;text-overflow:ellipsis}
-.ic-dir{color:#c99a2e}.ic-dg{color:var(--accent)}.ic-file{color:var(--muted)}
+.ic-dir{color:#c99a2e}.ic-img{color:#2e9e5b}.ic-dg{color:var(--accent)}.ic-file{color:var(--muted)}
 .side-empty{padding:18px 14px;color:var(--muted)}
 #workspace{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
 #tabs{display:flex;height:34px;flex:none;background:var(--panel2);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:thin}
@@ -79,6 +79,12 @@ body.no-sidebar #sidebar,body.no-sidebar #resizer{display:none}
 #canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;user-select:none}
 #canvas.panning{cursor:grabbing}
 #canvas.space{cursor:grab}
+#viewer{position:absolute;inset:0;overflow:hidden;cursor:grab;touch-action:none;outline:0;background-color:#fff;background-image:linear-gradient(45deg,#eceef2 25%,transparent 25%,transparent 75%,#eceef2 75%),linear-gradient(45deg,#eceef2 25%,transparent 25%,transparent 75%,#eceef2 75%);background-size:20px 20px;background-position:0 0,10px 10px}
+#viewer.panning{cursor:grabbing}
+#viewer img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none;box-shadow:0 0 0 1px rgba(0,0,0,.12)}
+body.viewing #palette{display:none}
+#props dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+#props dt{color:var(--muted)}#props dd{margin:0;overflow-wrap:anywhere}
 #editor{position:absolute;z-index:5;margin:0;padding:4px;border:2px solid var(--accent);border-radius:4px;background:#fff;color:#1f2430;resize:none;outline:0;text-align:center;overflow:hidden;line-height:1.3}
 .placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);text-align:center;padding:24px}
 .placeholder h1{margin:0;font-size:22px;color:var(--text)}
@@ -175,6 +181,7 @@ kbd{font:12px ui-monospace,Menlo,Consolas,monospace;background:var(--panel2);bor
       <div id="stage">
         <svg id="canvas" tabindex="0" aria-label="キャンバス"></svg>
         <textarea id="editor" hidden spellcheck="false" aria-label="文字の編集"></textarea>
+        <div id="viewer" hidden tabindex="0" aria-label="画像"><img alt=""></div>
         <div class="placeholder" id="empty"></div>
       </div>
       <aside id="props" aria-label="書式"></aside>
@@ -291,6 +298,9 @@ function choose({ title, message, buttons }) {
 /* 図は { nodes: [...], edges: [...] }。nodes の並びが重なり順(後ろほど手前)になる */
 const EXT = '.diagram.json';
 const isDiagram = (name) => name.toLowerCase().endsWith(EXT);
+/** 表示だけできる画像。SVG も <img> で表示するため、中のスクリプトや外部の参照は動かない */
+const IMAGE_TYPES = { png: 'image/png', svg: 'image/svg+xml', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+const imageType = (name) => { const m = /\.([a-z0-9]+)$/i.exec(name); return m && IMAGE_TYPES[m[1].toLowerCase()] || null; };
 const GRID = 10;
 const FONT = 'system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif';
 const SHAPES = {
@@ -582,7 +592,19 @@ const view = () => state.active.view;
 function renderCanvas() {
   const t = state.active;
   $('#empty').hidden = !!t;
+  const viewing = !!(t && t.kind === 'image');
+  document.body.classList.toggle('viewing', viewing);
+  $('#viewer').hidden = !viewing; canvas.style.visibility = viewing ? 'hidden' : '';
   if (!t) { canvas.innerHTML = ''; renderProps(); paintCommands(); return; }
+  if (viewing) {
+    const img = $('#viewer img'), v = t.view;
+    if (img.getAttribute('src') !== t.url) img.src = t.url;
+    img.style.width = `${t.w}px`; img.style.height = `${t.h}px`;
+    img.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.k})`;
+    canvas.innerHTML = '';
+    $('#zoomLabel').textContent = `${Math.round(v.k * 100)}%`;
+    renderProps(); paintCommands(); return;
+  }
   const v = t.view, sel = t.sel, k = v.k;
   const gs = GRID * k, major = gs * 5;
   let html = `<defs><pattern id="gridMinor" width="${gs}" height="${gs}" patternUnits="userSpaceOnUse" x="${v.x % gs}" y="${v.y % gs}"><path d="M ${gs} 0 L 0 0 0 ${gs}" fill="none" stroke="#e8eaef" stroke-width="1"/></pattern>`
@@ -702,15 +724,21 @@ function nudge(dx, dy) {
 }
 function setZoom(k, cx, cy) {
   const t = state.active; if (!t) return;
-  const v = t.view, r = canvas.getBoundingClientRect();
+  const v = t.view, r = $('#stage').getBoundingClientRect();
   if (cx == null) { cx = r.width / 2; cy = r.height / 2; }
-  const nk = Math.max(0.2, Math.min(4, k)), wx = (cx - v.x) / v.k, wy = (cy - v.y) / v.k;
+  const nk = t.kind === 'image' ? Math.max(0.05, Math.min(16, k)) : Math.max(0.2, Math.min(4, k)), wx = (cx - v.x) / v.k, wy = (cy - v.y) / v.k;
   v.k = nk; v.x = cx - wx * nk; v.y = cy - wy * nk;
   renderCanvas();
 }
 function fitView() {
   const t = state.active; if (!t) return;
-  const b = contentBounds(t.doc), r = canvas.getBoundingClientRect();
+  const r = $('#stage').getBoundingClientRect();
+  if (t.kind === 'image') { // 画像は縮小だけして全体を見せる(小さい画像は等倍)
+    const k = Math.max(0.05, Math.min(1, (r.width - 40) / t.w, (r.height - 40) / t.h));
+    t.view = { k, x: (r.width - t.w * k) / 2, y: (r.height - t.h * k) / 2 };
+    renderCanvas(); return;
+  }
+  const b = contentBounds(t.doc);
   if (!b) { t.view = { x: r.width / 2, y: r.height / 2, k: 1 }; renderCanvas(); return; }
   const k = Math.max(0.2, Math.min(1.5, Math.min((r.width - 80) / b.w, (r.height - 80) / b.h)));
   t.view = { k, x: r.width / 2 - (b.x + b.w / 2) * k, y: r.height / 2 - (b.y + b.h / 2) * k };
@@ -931,6 +959,25 @@ function initCanvas() {
   canvas.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceDown = false; canvas.classList.remove('space'); } });
   window.addEventListener('blur', () => { spaceDown = false; canvas.classList.remove('space'); });
   new ResizeObserver(() => { if (state.active) renderCanvas(); }).observe($('#stage'));
+  // 画像の表示: ドラッグで移動、スクロールで移動、Ctrl+スクロールで拡大・縮小
+  const viewer = $('#viewer');
+  viewer.addEventListener('pointerdown', (e) => {
+    const t = state.active; if (!t || t.kind !== 'image' || (e.button !== 0 && e.button !== 1)) return;
+    e.preventDefault(); viewer.focus();
+    const sx = e.clientX, sy = e.clientY, vx = t.view.x, vy = t.view.y;
+    viewer.setPointerCapture(e.pointerId); viewer.classList.add('panning');
+    const move = (ev) => { t.view.x = vx + ev.clientX - sx; t.view.y = vy + ev.clientY - sy; renderCanvas(); };
+    const up = () => { viewer.classList.remove('panning'); viewer.removeEventListener('pointermove', move); viewer.removeEventListener('pointerup', up); viewer.removeEventListener('pointercancel', up); };
+    viewer.addEventListener('pointermove', move); viewer.addEventListener('pointerup', up); viewer.addEventListener('pointercancel', up);
+  });
+  viewer.addEventListener('wheel', (e) => {
+    const t = state.active; if (!t || t.kind !== 'image') return;
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) { const r = viewer.getBoundingClientRect(); setZoom(t.view.k * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); return; }
+    t.view.x -= e.shiftKey ? e.deltaY : e.deltaX; t.view.y -= e.shiftKey ? 0 : e.deltaY;
+    renderCanvas();
+  }, { passive: false });
+  viewer.addEventListener('dblclick', () => { const t = state.active; if (t && t.kind === 'image') { if (Math.abs(t.view.k - 1) < 0.001) fitView(); else setZoom(1); } }); // 等倍と全体表示を切り替える
 }
 
 /* ---------- 図形の一覧 ---------- */
@@ -950,7 +997,7 @@ function initPalette() {
     for (const type of types) {
       const b = el('button'); b.type = 'button'; b.title = `${SHAPES[type].label}(クリックで中央に追加、ドラッグで配置)`; b.setAttribute('aria-label', SHAPES[type].label);
       b.dataset.shape = type; b.innerHTML = paletteIcon(type); b.draggable = true;
-      b.onclick = () => { if (!state.active) { toast('図を開くか新しく作ってください', true); return; } const c = viewCenter(), n = addShape(type, c.x, c.y); if (n && type === 'text') startEdit({ type: 'node', id: n.id }, true); else canvas.focus(); };
+      b.onclick = () => { if (!state.active || !state.active.doc) { toast('図を開くか新しく作ってください', true); return; } const c = viewCenter(), n = addShape(type, c.x, c.y); if (n && type === 'text') startEdit({ type: 'node', id: n.id }, true); else canvas.focus(); };
       b.addEventListener('dragstart', (e) => { e.dataTransfer.setData('application/x-diagram-shape', type); e.dataTransfer.effectAllowed = 'copy'; });
       grid.append(b);
     }
@@ -1014,9 +1061,23 @@ function edgeDataProps(t, e) {
 }
 let keepProps = false;
 const commitFromProps = (t) => { keepProps = true; commit(t); keepProps = false; };
+/** 画像の情報。書き出した画像なら、元の図を開くボタンも出す */
+function imageProps(box, t) {
+  const key = `image|${t.path}|${t.mtime}`;
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  const dl = el('dl'), kb = t.size / 1024;
+  const kind = { 'image/svg+xml': 'SVG', 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/gif': 'GIF', 'image/webp': 'WebP' }[imageType(t.name)];
+  for (const [k, v] of [['種類', kind], ['大きさ', `${t.w} × ${t.h} px`], ['ファイル', kb < 1024 ? `${kb.toFixed(1)} KB` : `${(kb / 1024).toFixed(1)} MB`], ['更新', new Date(t.mtime).toLocaleString('ja-JP')]]) dl.append(el('dt', '', k), el('dd', '', v));
+  const out = [el('h3', '', '画像'), dl, el('p', 'hint', '表示のみで、編集はできません。ドラッグで移動、Ctrl(Mac は ⌘)+スクロールで拡大・縮小します。')];
+  const src = findNode(t.path.replace(/\.[^./]+$/, '') + EXT);
+  if (src && src.kind === 'file') { const b = el('div', 'btns'); b.append(button('元の図を開く', '', guard(() => openFile(src)))); out.push(b); }
+  box.replaceChildren(...out);
+}
 function renderProps() {
   const box = $('#props'), t = state.active;
-  if (!t) { box.replaceChildren(); return; }
+  if (!t) { box.replaceChildren(); box.dataset.key = ''; return; }
+  if (t.kind === 'image') { imageProps(box, t); return; }
   // 入力中は作り直さない(ホバーなどの描き直しで入力が消えないように)
   const key = [...t.sel].join() + '|' + t.snap.length + '|' + t.past.length;
   if (box.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName) && box.dataset.key === key) return;
@@ -1136,8 +1197,10 @@ async function reloadTree() {
   for (const t of state.tabs) {
     const n = findNode(t.path); if (!n) continue;
     t.handle = n.handle;
+    if (t.kind === 'image') { const f = await n.handle.getFile(); if (f.lastModified !== t.mtime) await loadImage(t, f).catch(fail); t.movedByApp = false; continue; } // 書き出しなどで変わった画像は、最新の内容で表示し直す
     if (t.movedByApp) { t.mtime = (await n.handle.getFile()).lastModified; t.movedByApp = false; } // コピーで更新日時が変わるため取り直す
   }
+  if (state.active && state.active.kind === 'image') renderCanvas();
   renderTree(); renderTabs();
 }
 async function setRoot(handle) {
@@ -1158,10 +1221,10 @@ function renderTree() {
   const frag = document.createDocumentFragment();
   const walk = (n, depth) => {
     for (const c of n.children) {
-      const dir = c.kind === 'directory', open = dir && state.expanded.has(c.path), dg = !dir && isDiagram(c.name);
-      const row = el('div', 'row' + (open ? ' open' : '') + (!dir && !dg ? ' other' : '') + (state.active && state.active.path === c.path ? ' sel' : ''));
+      const dir = c.kind === 'directory', open = dir && state.expanded.has(c.path), dg = !dir && isDiagram(c.name), im = !dir && !dg && imageType(c.name);
+      const row = el('div', 'row' + (open ? ' open' : '') + (!dir && !dg && !im ? ' other' : '') + (state.active && state.active.path === c.path ? ' sel' : ''));
       row.dataset.path = c.path; row.draggable = true; row.style.paddingLeft = 6 + depth * 14 + 'px'; row.title = c.path;
-      row.innerHTML = `<span class="tw">${dir ? icon('chevron') : ''}</span>${dir ? icon('folder', 'ic-dir') : dg ? icon('diagram', 'ic-dg') : icon('file', 'ic-file')}<span class="nm">${esc(dg ? c.name.slice(0, -EXT.length) : c.name)}</span>`;
+      row.innerHTML = `<span class="tw">${dir ? icon('chevron') : ''}</span>${dir ? icon('folder', 'ic-dir') : dg ? icon('diagram', 'ic-dg') : im ? icon('image', 'ic-img') : icon('file', 'ic-file')}<span class="nm">${esc(dg ? c.name.slice(0, -EXT.length) : c.name)}</span>`;
       frag.append(row);
       if (open) walk(c, depth + 1);
     }
@@ -1277,7 +1340,7 @@ function initTree() {
   tree.addEventListener('click', guard(async (e) => {
     const n = nodeFrom(e.target); if (!n) return;
     if (n.kind === 'directory') { if (state.expanded.has(n.path)) state.expanded.delete(n.path); else state.expanded.add(n.path); renderTree(); return; }
-    if (isDiagram(n.name)) await openFile(n); else toast('開けるのは図のファイル(.diagram.json)だけです', true);
+    if (isDiagram(n.name) || imageType(n.name)) await openFile(n); else toast('開けるのは図(.diagram.json)と画像(SVG、PNG など)だけです', true);
   }));
   tree.addEventListener('contextmenu', (e) => {
     if (!state.root) return;
@@ -1320,6 +1383,14 @@ async function openFile(node) {
   let t = state.tabs.find((x) => x.path === node.path);
   if (!t) {
     const f = await node.handle.getFile();
+    if (imageType(node.name)) {
+      t = { kind: 'image', path: node.path, name: node.name, handle: node.handle, mtime: f.lastModified, dirty: false, past: [], future: [], sel: new Set(), view: null };
+      await loadImage(t, f);
+      state.tabs.push(t);
+      activate(t);
+      fitView();
+      return;
+    }
     if (f.size > 20 * 1024 * 1024) { toast('20MB を超えるファイルは開けません', true); return; }
     const doc = parseDiagram(await f.text());
     const snap = JSON.stringify(doc);
@@ -1331,19 +1402,29 @@ async function openFile(node) {
   }
   activate(t);
 }
+/** 画像を読み込み、表示用の blob URL と大きさを用意する。読めなければ例外にする */
+async function loadImage(t, f) {
+  if (f.size > 100 * 1024 * 1024) throw new Error('100MB を超える画像は開けません');
+  const url = URL.createObjectURL(new Blob([f], { type: imageType(t.name) })); // 拡張子から種類を決める(SVG を確実に画像として扱う)
+  const img = new Image();
+  img.src = url;
+  try { await img.decode(); } catch { URL.revokeObjectURL(url); throw new Error(`「${t.name}」を画像として表示できません`); }
+  if (t.url) URL.revokeObjectURL(t.url);
+  Object.assign(t, { url, w: img.naturalWidth || 300, h: img.naturalHeight || 150, size: f.size, mtime: f.lastModified });
+}
 function activate(t) {
   endEdit(true);
   state.active = t;
   if (t && !t.view) { const r = canvas.getBoundingClientRect(); t.view = { x: r.width / 2, y: r.height / 2, k: 1 }; }
   renderTabs(); renderTree(); renderCanvas();
-  if (t) canvas.focus();
+  if (t) (t.kind === 'image' ? $('#viewer') : canvas).focus();
 }
 function renderTabs() {
   const box = $('#tabs'), frag = document.createDocumentFragment();
   for (const t of state.tabs) {
     const d = el('div', 'tab' + (t === state.active ? ' on' : '') + (t.dirty ? ' dirty' : ''));
     d.title = t.path;
-    d.innerHTML = `<span class="tn">${esc(t.name.slice(0, -EXT.length) || t.name)}</span><i class="dot" title="未保存"></i><button class="x" type="button" title="閉じる" aria-label="閉じる">${icon('x')}</button>`;
+    d.innerHTML = `<span class="tn">${esc(isDiagram(t.name) ? t.name.slice(0, -EXT.length) : t.name)}</span><i class="dot" title="未保存"></i><button class="x" type="button" title="閉じる" aria-label="閉じる">${icon('x')}</button>`;
     d.addEventListener('click', (e) => { if (e.target.closest('.x')) guard(closeTab)(t); else if (t !== state.active) activate(t); });
     d.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); guard(closeTab)(t); } });
     frag.append(d);
@@ -1354,6 +1435,7 @@ function renderTabs() {
 function dropTab(t) {
   const i = state.tabs.indexOf(t); if (i < 0) return;
   state.tabs.splice(i, 1);
+  if (t.url) URL.revokeObjectURL(t.url);
   if (state.active === t) activate(state.tabs[i] || state.tabs[i - 1] || null); else renderTabs();
 }
 async function closeTab(t) {
@@ -1388,7 +1470,7 @@ async function saveTab(t) {
 /* ---------- 書き出し ---------- */
 /** 図と同じフォルダに、同じ名前の .svg / .png を書き出す */
 async function exportTo(kind) {
-  const t = state.active; if (!t) { toast('図を開いてください', true); return; }
+  const t = state.active; if (!t || !t.doc) { toast('図を開いてください', true); return; }
   if (!t.doc.nodes.length) { toast('図形がありません', true); return; }
   const dir = findNode(dirOf(t.path)); if (!dir) throw new Error('保存先のフォルダが見つかりません');
   const name = t.name.slice(0, -EXT.length) + '.' + kind, svg = exportSvg(t.doc);
@@ -1415,23 +1497,23 @@ function setTheme(th) { state.theme = th; store.set('theme', th); document.docum
 const commands = {
   sidebar: { label: 'サイドバーの表示/非表示', icon: 'menu', key: { mod: 1, code: 'Backslash' }, active: () => !document.body.classList.contains('no-sidebar'), run() { document.body.classList.toggle('no-sidebar'); paintCommands(); } },
   openFolder: { label: 'フォルダを開く', icon: 'folderOpen', key: { mod: 1, code: 'KeyO' }, run: guard(async () => { if (!hasFsApi) { toast('Chrome または Edge で開いてください', true); return; } const h = await window.showDirectoryPicker({ mode: 'readwrite' }); if (await closeAllTabs()) await setRoot(h); }) },
-  save: { label: '保存', icon: 'save', key: { mod: 1, code: 'KeyS' }, run: guard(async () => { if (state.active) await saveTab(state.active); }) },
+  save: { label: '保存', icon: 'save', key: { mod: 1, code: 'KeyS' }, enabled: () => state.active && state.active.doc, run: guard(async () => { if (state.active && state.active.doc) await saveTab(state.active); }) },
   undo: { label: '元に戻す', icon: 'undo', key: { mod: 1, code: 'KeyZ' }, enabled: () => state.active && state.active.past.length, run() { const t = state.active; if (t) restore(t.past, t.future); } },
   redo: { label: 'やり直す', icon: 'redo', key: { mod: 1, shift: 1, code: 'KeyZ' }, enabled: () => state.active && state.active.future.length, run() { const t = state.active; if (t) restore(t.future, t.past); } },
   front: { label: '最前面へ', icon: 'front', key: { mod: 1, shift: 1, code: 'BracketRight' }, enabled: () => selectedNodes().length, run: () => reorder(true) },
   back: { label: '最背面へ', icon: 'back', key: { mod: 1, shift: 1, code: 'BracketLeft' }, enabled: () => selectedNodes().length, run: () => reorder(false) },
   remove: { label: '削除', icon: 'trash', key: null, hint: 'Delete', enabled: () => state.active && state.active.sel.size, run: deleteSelection },
   zoomOut: { label: '縮小', icon: 'zoomOut', key: { mod: 1, code: 'Minus' }, enabled: () => state.active, run: () => state.active && setZoom(state.active.view.k / 1.25) },
-  zoomIn: { label: '拡大', icon: 'zoomIn', key: { mod: 1, code: 'Equal' }, enabled: () => state.active, run: () => state.active && setZoom(state.active.view.k * 1.25) },
+  zoomIn: { label: '拡大', icon: 'zoomIn', key: { mod: 1, code: 'Equal', anyShift: 1 }, enabled: () => state.active, run: () => state.active && setZoom(state.active.view.k * 1.25) },
   fit: { label: '全体表示', icon: 'fit', key: { mod: 1, code: 'Digit0' }, enabled: () => state.active, run: fitView },
   snap: { label: 'グリッドに合わせる', icon: 'grid', key: null, hint: '移動中に Alt で一時解除', active: () => state.snap, run() { state.snap = !state.snap; store.set('snap', state.snap); paintCommands(); } },
-  svg: { label: 'SVG を書き出す', icon: 'image', text: 'SVG', key: { alt: 1, code: 'KeyS' }, enabled: () => state.active, run: guard(() => exportTo('svg')) },
-  png: { label: 'PNG を書き出す', icon: 'image', text: 'PNG', key: { alt: 1, code: 'KeyP' }, enabled: () => state.active, run: guard(() => exportTo('png')) },
+  svg: { label: 'SVG を書き出す', icon: 'image', text: 'SVG', key: { alt: 1, code: 'KeyS' }, enabled: () => state.active && state.active.doc, run: guard(() => exportTo('svg')) },
+  png: { label: 'PNG を書き出す', icon: 'image', text: 'PNG', key: { alt: 1, code: 'KeyP' }, enabled: () => state.active && state.active.doc, run: guard(() => exportTo('png')) },
   theme: { label: 'テーマ切り替え', icon: 'moon', key: { alt: 1, code: 'KeyD' }, run() { setTheme(state.theme === 'dark' ? 'light' : 'dark'); } },
   help: { label: 'ショートカット一覧', icon: 'help', key: { mod: 1, code: 'Slash' }, run: openHelp },
   closeTab: { label: 'タブを閉じる', key: { alt: 1, code: 'KeyW' }, run: guard(async () => { if (state.active) await closeTab(state.active); }) },
 };
-function selectedNodes() { const t = state.active; return t ? t.doc.nodes.filter((n) => t.sel.has(n.id)) : []; }
+function selectedNodes() { const t = state.active; return t && t.doc ? t.doc.nodes.filter((n) => t.sel.has(n.id)) : []; }
 const KEY_LABEL = { Backslash: '\\', Slash: '/', Minus: '-', Equal: '+', Digit0: '0', BracketLeft: '[', BracketRight: ']' };
 function keyText(k) {
   if (!k) return '';
@@ -1457,14 +1539,28 @@ function paintCommands() {
     b.classList.toggle('on', !!(c.active && c.active()));
   }
 }
+/**
+ * ショートカットの判定。
+ * - 記号のキーは配列(日本語配列など)で位置が違うため、入力された文字で照合する
+ * - IME がオンの Windows では key が "Process" になることがあるため、そのときはキーの位置(code)で照合する
+ */
+const KEY_CHARS = { Backslash: ['\\', '¥', '_', '|'], Slash: ['/', '?'], Minus: ['-'], Equal: ['=', '+', ';'], BracketLeft: ['[', '{'], BracketRight: [']', '}'], Digit0: ['0'] };
+function keyMatches(k, e) {
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (!!k.mod !== mod || !!k.alt !== e.altKey || (!k.anyShift && !!k.shift !== e.shiftKey)) return false;
+  const chars = KEY_CHARS[k.code];
+  if (chars && e.key && e.key.length === 1) return chars.includes(e.key);
+  return e.code === k.code;
+}
+/** 入力中の変換は邪魔しない。ただし修飾キー付きなら、IME がオンでもショートカットとして扱う */
+const imeBusy = (e) => e.isComposing || (e.keyCode === 229 && !(e.ctrlKey || e.metaKey || e.altKey));
 function onGlobalKey(e) {
-  if (e.isComposing || e.keyCode === 229 || state.modal || !editorEl.hidden) return;
+  if (imeBusy(e) || state.modal || !editorEl.hidden) return;
   if (e.target.closest && e.target.closest('#props input, #props select') && e.code !== 'KeyS') return; // 入力欄では文字の取り消しなどを優先する
   const mod = isMac ? e.metaKey : e.ctrlKey;
   if (mod && !e.altKey && e.code === 'KeyY') { e.preventDefault(); commands.redo.run(); return; }
   for (const c of Object.values(commands)) {
-    const k = c.key; if (!k || k.code !== e.code) continue;
-    if (!!k.mod === mod && !!k.alt === e.altKey && !!k.shift === e.shiftKey) { e.preventDefault(); e.stopPropagation(); c.run(); return; }
+    if (c.key && keyMatches(c.key, e)) { e.preventDefault(); e.stopPropagation(); c.run(); return; }
   }
 }
 

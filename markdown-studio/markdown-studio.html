@@ -2286,12 +2286,25 @@ function paintCommands() {
     b.classList.toggle('on', !!(c.active && c.active()) || (b.dataset.cmd === 'sidebar' && !document.body.classList.contains('no-sidebar')));
   }
 }
-function onGlobalKey(e) {
-  if (e.isComposing || e.keyCode === 229 || state.modal) return;
+/**
+ * ショートカットの判定。
+ * - 記号のキーは配列(日本語配列など)で位置が違うため、入力された文字で照合する
+ * - IME がオンの Windows では key が "Process" になることがあるため、そのときはキーの位置(code)で照合する
+ */
+const KEY_CHARS = { Backslash: ['\\', '¥', '_', '|'], Slash: ['/', '?'], Minus: ['-'], Equal: ['=', '+', ';'], BracketLeft: ['[', '{'], BracketRight: [']', '}'], Digit0: ['0'] };
+function keyMatches(k, e) {
   const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (!!k.mod !== mod || !!k.alt !== e.altKey || (!k.anyShift && !!k.shift !== e.shiftKey)) return false;
+  const chars = KEY_CHARS[k.code];
+  if (chars && e.key && e.key.length === 1) return chars.includes(e.key);
+  return e.code === k.code;
+}
+/** 入力中の変換は邪魔しない。ただし修飾キー付きなら、IME がオンでもショートカットとして扱う */
+const imeBusy = (e) => e.isComposing || (e.keyCode === 229 && !(e.ctrlKey || e.metaKey || e.altKey));
+function onGlobalKey(e) {
+  if (imeBusy(e) || state.modal) return;
   for (const c of Object.values(commands)) {
-    const k = c.key; if (!k || k.code !== e.code) continue;
-    if (!!k.mod === mod && !!k.alt === e.altKey && !!k.shift === e.shiftKey) { e.preventDefault(); e.stopPropagation(); c.run(); return; }
+    if (c.key && keyMatches(c.key, e)) { e.preventDefault(); e.stopPropagation(); c.run(); return; }
   }
 }
 
